@@ -177,7 +177,7 @@ const UsersTab: React.FC = () => {
     email: '',
     password: '',
     role: 'user',
-    auth_provider: 'local',
+    auth_provider: 'google',
   });
 
   useEffect(() => {
@@ -495,7 +495,6 @@ const UsersTab: React.FC = () => {
                   >
                     <option value="local">Local (Username & Password)</option>
                     <option value="google">Google SSO Only</option>
-                    <option value="both">Both (Local + Google)</option>
                   </select>
                 </div>
                 {formData.auth_provider !== 'google' && isExternal && (
