@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { CopyButton } from '../components/password/CopyButton';
 import { api } from '../services/api';
 import { PasswordListItem } from '@passwordpal/shared';
+import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
 const CalendarIcon = () => (
@@ -46,10 +47,13 @@ const PlusIcon = () => (
 );
 
 export const DashboardPage: React.FC = () => {
+  const { isExternal } = useAuth();
+  const navigate = useNavigate();
   const [passwords, setPasswords] = useState<PasswordListItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
+  const [retrieveUrl, setRetrieveUrl] = useState('');
 
   useEffect(() => {
     fetchPasswords();
@@ -92,6 +96,45 @@ export const DashboardPage: React.FC = () => {
     return password.current_access_count >= password.max_access_count;
   };
 
+  const handleRetrieveUrl = () => {
+    const trimmed = retrieveUrl.trim();
+    // Accept full URL or just the GUID
+    const match = trimmed.match(/retrieve\/([0-9a-f-]{36})/i) || trimmed.match(/^([0-9a-f-]{36})$/i);
+    if (!match) {
+      toast.error('Please enter a valid password link or GUID');
+      return;
+    }
+    navigate(`/retrieve/${match[1]}`);
+  };
+
+  if (isExternal) {
+    return (
+      <Layout>
+        <div className="max-w-xl mx-auto mt-12">
+          <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Retrieve a Password</h1>
+          <p className="text-gray-500 dark:text-gray-400 mb-8">
+            Paste a password link shared with you to view its contents.
+          </p>
+          <Card>
+            <div className="space-y-4">
+              <input
+                type="text"
+                placeholder="Paste password link or GUID here..."
+                value={retrieveUrl}
+                onChange={(e) => setRetrieveUrl(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleRetrieveUrl()}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm transition-colors"
+              />
+              <Button fullWidth onClick={handleRetrieveUrl}>
+                Retrieve Password
+              </Button>
+            </div>
+          </Card>
+        </div>
+      </Layout>
+    );
+  }
+
   if (loading && passwords.length === 0) {
     return (
       <Layout>
@@ -116,6 +159,7 @@ export const DashboardPage: React.FC = () => {
             </Button>
           </Link>
         </div>
+
 
         {passwords.length === 0 ? (
           <Card className="text-center py-16">

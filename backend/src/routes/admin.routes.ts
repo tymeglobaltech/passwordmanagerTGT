@@ -27,7 +27,7 @@ router.post(
       .withMessage('Password must be at least 8 characters')
       .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
       .withMessage('Password must contain uppercase, lowercase, number, and special character'),
-    body('role').isIn(['admin', 'user']).withMessage('Role must be admin or user'),
+    body('role').isIn(['admin', 'user', 'external']).withMessage('Role must be admin, user, or external'),
     body('auth_provider').optional().isIn(['local', 'google', 'both']).withMessage('Invalid auth provider'),
   ]),
   validate,
@@ -48,7 +48,7 @@ router.put(
       .optional()
       .isLength({ min: 8 })
       .withMessage('Password must be at least 8 characters'),
-    body('role').optional().isIn(['admin', 'user']),
+    body('role').optional().isIn(['admin', 'user', 'external']),
     body('is_active').optional().isBoolean(),
   ]),
   validate,

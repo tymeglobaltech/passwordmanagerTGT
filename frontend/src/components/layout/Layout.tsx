@@ -45,7 +45,7 @@ const iconMap: Record<string, React.FC> = {
 };
 
 export const Layout: React.FC<LayoutProps> = ({ children }) => {
-  const { user, isAdmin, logout } = useAuth();
+  const { user, isAdmin, isExternal, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
   const navigate = useNavigate();
@@ -62,7 +62,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
 
   const navLinks = [
     { path: '/dashboard', label: 'Dashboard' },
-    { path: '/generate', label: 'Generate' },
+    ...(!isExternal ? [{ path: '/generate', label: 'Generate' }] : []),
     ...(isAdmin ? [{ path: '/admin', label: 'Admin' }] : []),
   ];
 

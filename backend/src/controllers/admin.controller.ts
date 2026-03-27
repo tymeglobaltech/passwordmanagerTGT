@@ -58,7 +58,7 @@ export class AdminController {
       const provider = auth_provider || 'local';
 
       // Validate role
-      if (!['admin', 'user'].includes(role)) {
+      if (!['admin', 'user', 'external'].includes(role)) {
         throw new AppError('Invalid role', 400);
       }
 
@@ -158,7 +158,7 @@ export class AdminController {
       }
 
       if (role !== undefined) {
-        if (!['admin', 'user'].includes(role)) {
+        if (!['admin', 'user', 'external'].includes(role)) {
           throw new AppError('Invalid role', 400);
         }
         updates.push(`role = $${paramIndex++}`);
