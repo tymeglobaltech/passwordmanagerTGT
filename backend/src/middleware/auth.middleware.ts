@@ -66,6 +66,31 @@ export const requireAdmin = (
 };
 
 /**
+ * Middleware to check if user is an internal (non-external) user
+ */
+export const requireInternalUser = (
+  req: AuthRequest,
+  res: Response,
+  next: NextFunction
+) => {
+  if (!req.user) {
+    return res.status(401).json({
+      success: false,
+      error: 'Authentication required',
+    });
+  }
+
+  if (req.user.role === 'external') {
+    return res.status(403).json({
+      success: false,
+      error: 'This action is restricted to internal users',
+    });
+  }
+
+  next();
+};
+
+/**
  * Optional authentication - attaches user if token is present
  */
 export const optionalAuth = (

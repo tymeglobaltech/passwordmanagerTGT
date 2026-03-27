@@ -22,7 +22,7 @@ router.post(
     body('full_name').optional().trim(),
     body('email').isEmail().withMessage('Invalid email address'),
     body('password')
-      .optional()
+      .optional({ values: 'falsy' })
       .isLength({ min: 8 })
       .withMessage('Password must be at least 8 characters')
       .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)

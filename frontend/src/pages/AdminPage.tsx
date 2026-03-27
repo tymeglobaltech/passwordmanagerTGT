@@ -200,7 +200,9 @@ const UsersTab: React.FC = () => {
     setCreateLoading(true);
 
     try {
-      await api.createUser(formData);
+      const payload = { ...formData };
+      if (!payload.password) delete payload.password;
+      await api.createUser(payload);
       toast.success('User created successfully');
       setShowCreateModal(false);
       setFormData({ username: '', full_name: '', email: '', password: '', role: 'user', auth_provider: 'local' });
@@ -315,6 +317,8 @@ const UsersTab: React.FC = () => {
                       className={`px-2.5 py-1 rounded-full text-xs font-medium ${
                         user.role === 'admin'
                           ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                          : user.role === 'external'
+                          ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300'
                           : 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
                       }`}
                     >
@@ -416,6 +420,7 @@ const UsersTab: React.FC = () => {
             >
               <option value="user">User</option>
               <option value="admin">Admin</option>
+              <option value="external">External</option>
             </select>
           </div>
           <div>
@@ -525,6 +530,7 @@ const UsersTab: React.FC = () => {
             >
               <option value="user">User</option>
               <option value="admin">Admin</option>
+              <option value="external">External</option>
             </select>
           </div>
           <div className="flex space-x-2">

@@ -1,15 +1,17 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
 import { PasswordController } from '../controllers/password.controller';
-import { authenticate, requireAdmin } from '../middleware/auth.middleware';
+import { authenticate, requireAdmin, requireInternalUser } from '../middleware/auth.middleware';
 import { retrievalLimiter } from '../middleware/rateLimiter.middleware';
 import { runValidations, validate } from '../middleware/validation.middleware';
 
 const router = Router();
 
-// Generate password (no auth required)
+// Generate password (internal users only)
 router.post(
   '/generate',
+  authenticate,
+  requireInternalUser,
   runValidations([
     body('length').optional().isInt({ min: 8, max: 128 }).withMessage('Length must be between 8 and 128'),
     body('uppercase').optional().isBoolean(),
@@ -23,10 +25,11 @@ router.post(
   }
 );
 
-// Save password
+// Save password (internal users only)
 router.post(
   '/',
   authenticate,
+  requireInternalUser,
   runValidations([
     body('password').notEmpty().withMessage('Password is required'),
     body('title').optional().trim(),

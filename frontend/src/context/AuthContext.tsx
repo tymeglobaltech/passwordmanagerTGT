@@ -7,7 +7,8 @@ interface AuthContextType {
   token: string | null;
   isAuthenticated: boolean;
   isAdmin: boolean;
-  login: (username: string, password: string) => Promise<void>;
+  isExternal: boolean;
+  login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => void;
   loading: boolean;
@@ -33,8 +34,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(false);
   }, []);
 
-  const login = async (username: string, password: string) => {
-    const response = await api.login({ username, password });
+  const login = async (email: string, password: string) => {
+    const response = await api.login({ email, password });
 
     setToken(response.token);
     setUser(response.user);
@@ -69,6 +70,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     token,
     isAuthenticated: !!token && !!user,
     isAdmin: user?.role === 'admin',
+    isExternal: user?.role === 'external',
     login,
     loginWithGoogle,
     logout,

@@ -20,14 +20,14 @@ export class EmailService {
     const setupLink = `${appUrl}/set-password?token=${token}`;
 
     await transporter.sendMail({
-      from: process.env.SMTP_FROM || 'PasswordPal <noreply@tymeglobal.com>',
+      from: process.env.SMTP_FROM || 'Tyme Global Password Manager <noreply@tymeglobal.com>',
       to: email,
-      subject: 'Welcome to PasswordPal — Set Your Password',
+      subject: 'Welcome to Tyme Global Password Manager — Set Your Password',
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #4f46e5;">Welcome to PasswordPal</h2>
+          <h2 style="color: #4f46e5;">Welcome to Tyme Global Password Manager</h2>
           <p>Hi ${fullName},</p>
-          <p>An account has been created for you on PasswordPal. Please click the button below to set your password and access your account.</p>
+          <p>An account has been created for you on Tyme Global Password Manager. Please click the button below to set your password and access your account.</p>
           <div style="text-align: center; margin: 32px 0;">
             <a href="${setupLink}"
                style="background-color: #4f46e5; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; font-weight: bold;">

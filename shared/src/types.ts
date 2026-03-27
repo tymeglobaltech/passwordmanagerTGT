@@ -1,5 +1,5 @@
 // User Types
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'admin' | 'user' | 'external';
 export type AuthProvider = 'local' | 'google' | 'both';
 
 export interface User {
@@ -35,7 +35,7 @@ export interface UpdateUserDto {
 }
 
 export interface LoginDto {
-  username: string;
+  email: string;
   password: string;
 }
 

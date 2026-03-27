@@ -12,12 +12,12 @@ export class AuthController {
    */
   static async login(req: AuthRequest, res: Response) {
     try {
-      const { username, password } = req.body;
+      const { email, password } = req.body;
 
       // Find user
       const result = await query(
-        'SELECT * FROM users WHERE username = $1',
-        [username]
+        'SELECT * FROM users WHERE email = $1',
+        [email]
       );
 
       if (result.rows.length === 0) {

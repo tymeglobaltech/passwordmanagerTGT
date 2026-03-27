@@ -34,11 +34,11 @@ const ChevronIcon: React.FC<{ open: boolean }> = ({ open }) => (
 );
 
 export const LoginPage: React.FC = () => {
-  const [username, setUsername] = useState('');
+  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [showLocalLogin, setShowLocalLogin] = useState(false);
+  const [showLocalLogin, setShowLocalLogin] = useState(true);
   const { login, loginWithGoogle } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
@@ -94,7 +94,7 @@ export const LoginPage: React.FC = () => {
     setLoading(true);
 
     try {
-      await login(username, password);
+      await login(email, password);
       toast.success('Login successful!');
       navigate(from, { replace: true });
     } catch (error: any) {
@@ -158,11 +158,11 @@ export const LoginPage: React.FC = () => {
           {showLocalLogin && (
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <Input
-                label="Username"
-                type="text"
-                placeholder="Enter your username"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
+                label="Email"
+                type="email"
+                placeholder="Enter your email address"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
                 required
                 autoFocus
               />
@@ -180,7 +180,7 @@ export const LoginPage: React.FC = () => {
                 type="submit"
                 fullWidth
                 loading={loading}
-                disabled={!username || !password}
+                disabled={!email || !password}
               >
                 Sign In
               </Button>

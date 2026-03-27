@@ -115,7 +115,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               <div className="h-6 w-px bg-gray-200 dark:bg-gray-700" />
 
               <span className="text-sm text-gray-600 dark:text-gray-400">
-                {user?.username}
+                {user?.full_name || user?.username}
                 {isAdmin && (
                   <span className="ml-2 text-xs bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 px-2.5 py-0.5 rounded-full font-medium">
                     Admin
@@ -180,7 +180,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
               })}
               <div className="border-t border-gray-200 dark:border-gray-800 pt-3 mt-2">
                 <div className="px-4 py-2 text-sm text-gray-600 dark:text-gray-400">
-                  {user?.username}
+                  {user?.full_name || user?.username}
                   {isAdmin && (
                     <span className="ml-2 text-xs bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 px-2.5 py-0.5 rounded-full font-medium">
                       Admin
