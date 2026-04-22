@@ -1,4 +1,5 @@
 /// <reference types="vite/client" />
+/// <reference path="../../node_modules/xlsx/types/index.d.ts" />
 
 interface ImportMetaEnv {
   readonly VITE_API_URL: string;
