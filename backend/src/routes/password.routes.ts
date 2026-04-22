@@ -25,6 +25,22 @@ router.post(
   }
 );
 
+// Bulk save passwords from import (internal users only)
+router.post(
+  '/bulk',
+  authenticate,
+  requireInternalUser,
+  runValidations([
+    body('entries').isArray({ min: 1, max: 500 }).withMessage('entries must be an array of 1–500 items'),
+    body('entries.*.password').notEmpty().withMessage('Each entry must have a password'),
+    body('entries.*.title').optional().trim(),
+  ]),
+  validate,
+  (req, res, next) => {
+    PasswordController.bulkSavePasswords(req, res).catch(next);
+  }
+);
+
 // Save password (internal users only)
 router.post(
   '/',

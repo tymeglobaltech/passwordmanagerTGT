@@ -262,6 +262,78 @@ export class PasswordController {
   }
 
   /**
+   * Bulk save passwords from an imported list
+   */
+  static async bulkSavePasswords(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const { entries } = req.body;
+
+      if (!Array.isArray(entries) || entries.length === 0) {
+        throw new AppError('entries must be a non-empty array', 400);
+      }
+
+      if (entries.length > 500) {
+        throw new AppError('Maximum 500 entries per import', 400);
+      }
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+      const results = await Promise.all(
+        entries.map(async (entry: any, index: number) => {
+          if (!entry.password) {
+            return { index, title: entry.title || '', success: false, error: 'Password is required' };
+          }
+
+          try {
+            const { encrypted, iv } = EncryptionService.encrypt(String(entry.password));
+            const guid = EncryptionService.generateGuid();
+
+            const result = await query(
+              `INSERT INTO passwords (guid, encrypted_password, encryption_iv, title, created_by)
+               VALUES ($1, $2, $3, $4, $5)
+               RETURNING id, guid, title`,
+              [guid, encrypted, iv, entry.title ? String(entry.title) : null, req.user!.userId]
+            );
+
+            const saved = result.rows[0];
+
+            await AuditService.logAccess({
+              passwordId: saved.id,
+              accessedBy: req.user!.userId,
+              ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
+              userAgent: req.headers['user-agent'] || 'unknown',
+              accessType: 'create',
+              success: true,
+            });
+
+            return {
+              index,
+              title: saved.title || '',
+              success: true,
+              shareable_link: `${frontendUrl}/retrieve/${saved.guid}`,
+            };
+          } catch {
+            return { index, title: entry.title || '', success: false, error: 'Failed to save' };
+          }
+        })
+      );
+
+      // Sort back to original order (Promise.all preserves order, but be explicit)
+      results.sort((a, b) => a.index - b.index);
+
+      res.json({ success: true, data: { results } });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      console.error('Bulk save error:', error);
+      throw new AppError('Failed to bulk save passwords', 500);
+    }
+  }
+
+  /**
    * Delete password
    */
   static async deletePassword(req: AuthRequest, res: Response) {

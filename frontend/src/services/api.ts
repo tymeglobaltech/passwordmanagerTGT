@@ -112,6 +112,11 @@ class ApiService {
     await this.client.delete(`/passwords/${guid}`);
   }
 
+  async bulkSavePasswords(entries: { title: string; password: string }[]): Promise<{ results: { index: number; title: string; success: boolean; shareable_link?: string; error?: string }[] }> {
+    const response = await this.client.post<{ data: { results: any[] } }>('/passwords/bulk', { entries });
+    return response.data.data;
+  }
+
   // Admin - User Management
   async getUsers(page = 1, limit = 50): Promise<PaginatedResponse<User>> {
     const response = await this.client.get<{ data: PaginatedResponse<User> }>(

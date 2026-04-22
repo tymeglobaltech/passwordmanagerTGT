@@ -4,6 +4,7 @@ import { Layout } from '../components/layout/Layout';
 import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { CopyButton } from '../components/password/CopyButton';
+import { ImportPasswordsModal } from '../components/password/ImportPasswordsModal';
 import { api } from '../services/api';
 import { PasswordListItem } from '@passwordpal/shared';
 import { useAuth } from '../context/AuthContext';
@@ -54,6 +55,7 @@ export const DashboardPage: React.FC = () => {
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [retrieveUrl, setRetrieveUrl] = useState('');
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     fetchPasswords();
@@ -150,15 +152,26 @@ export const DashboardPage: React.FC = () => {
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center justify-between mb-8">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Passwords</h1>
-          <Link to="/generate">
-            <Button>
-              <span className="flex items-center">
-                <PlusIcon />
-                New Password
-              </span>
+          <div className="flex items-center space-x-2">
+            <Button variant="secondary" onClick={() => setShowImport(true)}>
+              Import
             </Button>
-          </Link>
+            <Link to="/generate">
+              <Button>
+                <span className="flex items-center">
+                  <PlusIcon />
+                  New Password
+                </span>
+              </Button>
+            </Link>
+          </div>
         </div>
+
+        <ImportPasswordsModal
+          isOpen={showImport}
+          onClose={() => setShowImport(false)}
+          onImported={fetchPasswords}
+        />
 
 
         {passwords.length === 0 ? (
