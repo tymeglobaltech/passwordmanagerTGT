@@ -166,6 +166,7 @@ const StatsTab: React.FC = () => {
 const UsersTab: React.FC = () => {
   const [users, setUsers] = useState<User[]>([]);
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -180,13 +181,24 @@ const UsersTab: React.FC = () => {
     auth_provider: 'google',
   });
 
+  const filteredUsers = searchQuery.trim()
+    ? users.filter((u) => {
+        const q = searchQuery.toLowerCase();
+        return (
+          u.username.toLowerCase().includes(q) ||
+          u.email.toLowerCase().includes(q) ||
+          (u.full_name?.toLowerCase().includes(q) ?? false)
+        );
+      })
+    : users;
+
   useEffect(() => {
     fetchUsers();
   }, []);
 
   const fetchUsers = async () => {
     try {
-      const response = await api.getUsers();
+      const response = await api.getUsers(1, 1000);
       setUsers(response.data);
     } catch (error) {
       toast.error('Failed to load users');
@@ -269,10 +281,25 @@ const UsersTab: React.FC = () => {
 
   return (
     <>
-      <div className="mb-4">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
         <Button onClick={() => setShowCreateModal(true)}>
           + Create User
         </Button>
+        <div className="flex-1 relative">
+          <input
+            type="text"
+            placeholder="Search by username, email, or name..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full px-4 py-2 pl-9 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+          />
+          <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.35-4.35M17 11A6 6 0 1 1 5 11a6 6 0 0 1 12 0z" />
+          </svg>
+        </div>
+        <span className="text-sm text-gray-500 dark:text-gray-400 whitespace-nowrap">
+          {searchQuery.trim() ? `${filteredUsers.length} of ${users.length}` : `${users.length}`} user{users.length !== 1 ? 's' : ''}
+        </span>
       </div>
 
       <Card padding={false}>
@@ -304,7 +331,14 @@ const UsersTab: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-              {users.map((user) => (
+              {filteredUsers.length === 0 && (
+                <tr>
+                  <td colSpan={7} className="px-6 py-10 text-center text-sm text-gray-500 dark:text-gray-400">
+                    No users match your search.
+                  </td>
+                </tr>
+              )}
+              {filteredUsers.map((user) => (
                 <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors">
                   <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
                     {user.username}
