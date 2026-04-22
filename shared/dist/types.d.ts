@@ -1,8 +1,9 @@
-export type UserRole = 'admin' | 'user';
+export type UserRole = 'admin' | 'user' | 'external';
 export type AuthProvider = 'local' | 'google' | 'both';
 export interface User {
     id: string;
     username: string;
+    full_name?: string;
     email: string;
     role: UserRole;
     auth_provider: AuthProvider;
@@ -14,6 +15,7 @@ export interface User {
 }
 export interface CreateUserDto {
     username: string;
+    full_name?: string;
     email: string;
     password?: string;
     role: UserRole;
@@ -21,13 +23,14 @@ export interface CreateUserDto {
 }
 export interface UpdateUserDto {
     username?: string;
+    full_name?: string;
     email?: string;
     password?: string;
     role?: UserRole;
     is_active?: boolean;
 }
 export interface LoginDto {
-    username: string;
+    email: string;
     password: string;
 }
 export interface GoogleLoginDto {
