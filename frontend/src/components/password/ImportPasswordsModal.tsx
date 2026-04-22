@@ -1,5 +1,4 @@
 import React, { useRef, useState } from 'react';
-import * as XLSX from 'xlsx';
 import { Modal } from '../common/Modal';
 import { Button } from '../common/Button';
 import { api } from '../../services/api';
@@ -26,6 +25,55 @@ interface Props {
 
 type Step = 'upload' | 'preview' | 'results';
 
+function parseCSV(text: string): ParsedEntry[] {
+  const lines = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
+  if (lines.length < 2) return [];
+
+  // Detect delimiter: comma or semicolon or tab
+  const firstLine = lines[0];
+  const delimiter = firstLine.includes('\t') ? '\t' : firstLine.includes(';') ? ';' : ',';
+
+  const splitLine = (line: string): string[] => {
+    const result: string[] = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const ch = line[i];
+      if (ch === '"') {
+        if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+        else inQuotes = !inQuotes;
+      } else if (ch === delimiter && !inQuotes) {
+        result.push(current.trim());
+        current = '';
+      } else {
+        current += ch;
+      }
+    }
+    result.push(current.trim());
+    return result;
+  };
+
+  const headers = splitLine(lines[0]).map((h) => h.toLowerCase().replace(/^"|"$/g, ''));
+
+  const findCol = (...names: string[]) => headers.findIndex((h) => names.includes(h));
+  const titleCol = findCol('title', 'name', 'label', 'description', 'account');
+  const passwordCol = findCol('password', 'pass', 'pwd', 'secret');
+
+  if (passwordCol === -1) return [];
+
+  const entries: ParsedEntry[] = [];
+  for (let i = 1; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+    const cols = splitLine(line);
+    const password = cols[passwordCol]?.replace(/^"|"$/g, '') ?? '';
+    if (!password) continue;
+    const title = titleCol !== -1 ? (cols[titleCol]?.replace(/^"|"$/g, '') ?? '') : '';
+    entries.push({ title, password });
+  }
+  return entries;
+}
+
 export const ImportPasswordsModal: React.FC<Props> = ({ isOpen, onClose, onImported }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>('upload');
@@ -42,53 +90,21 @@ export const ImportPasswordsModal: React.FC<Props> = ({ isOpen, onClose, onImpor
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const handleClose = () => {
-    reset();
-    onClose();
-  };
+  const handleClose = () => { reset(); onClose(); };
 
-  const parseFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const data = new Uint8Array(e.target!.result as ArrayBuffer);
-        const workbook = XLSX.read(data, { type: 'array' });
-        const sheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows: any[] = XLSX.utils.sheet_to_json(sheet, { defval: '' });
-
-        if (rows.length === 0) {
-          toast.error('The spreadsheet appears to be empty.');
-          return;
-        }
-
-        // Normalise column names (case-insensitive, trim whitespace)
-        const normalise = (obj: any): ParsedEntry => {
-          const find = (...keys: string[]) => {
-            for (const key of Object.keys(obj)) {
-              if (keys.includes(key.toLowerCase().trim())) return String(obj[key] ?? '').trim();
-            }
-            return '';
-          };
-          return {
-            title: find('title', 'name', 'label', 'description'),
-            password: find('password', 'pass', 'pwd', 'secret'),
-          };
-        };
-
-        const parsed = rows.map(normalise).filter((e) => e.password !== '');
-
-        if (parsed.length === 0) {
-          toast.error('No valid rows found. Make sure your sheet has "Title" and "Password" columns.');
-          return;
-        }
-
-        setEntries(parsed);
-        setStep('preview');
-      } catch {
-        toast.error('Could not read the file. Please use .xlsx or .csv format.');
+  const parseFile = async (file: File) => {
+    try {
+      const text = await file.text();
+      const parsed = parseCSV(text);
+      if (parsed.length === 0) {
+        toast.error('No valid rows found. Make sure your CSV has "Title" and "Password" columns.');
+        return;
       }
-    };
-    reader.readAsArrayBuffer(file);
+      setEntries(parsed);
+      setStep('preview');
+    } catch {
+      toast.error('Could not read the file.');
+    }
   };
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -138,12 +154,15 @@ export const ImportPasswordsModal: React.FC<Props> = ({ isOpen, onClose, onImpor
       {step === 'upload' && (
         <div className="space-y-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Upload an Excel (<code>.xlsx</code>) or CSV file. The sheet must have a{' '}
-            <strong>Title</strong> column and a <strong>Password</strong> column. Links will be
-            generated in the same order as your rows — no expiry, no access limit.
+            Upload a <strong>CSV file</strong> with a <strong>Title</strong> column and a{' '}
+            <strong>Password</strong> column. Links are generated in the same row order with no
+            expiry or access limit.
           </p>
+          <div className="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-xl text-xs text-blue-700 dark:text-blue-300 space-y-0.5">
+            <p><strong>Google Sheets:</strong> File → Download → Comma Separated Values (.csv)</p>
+            <p><strong>Excel:</strong> File → Save As → CSV (Comma delimited)</p>
+          </div>
 
-          {/* Drop zone */}
           <div
             onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
             onDragLeave={() => setDragOver(false)}
@@ -161,11 +180,11 @@ export const ImportPasswordsModal: React.FC<Props> = ({ isOpen, onClose, onImpor
             <p className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Drag & drop or click to choose a file
             </p>
-            <p className="text-xs text-gray-400 dark:text-gray-500">.xlsx or .csv</p>
+            <p className="text-xs text-gray-400 dark:text-gray-500">.csv</p>
             <input
               ref={fileInputRef}
               type="file"
-              accept=".xlsx,.xls,.csv"
+              accept=".csv"
               className="hidden"
               onChange={handleFileChange}
             />
@@ -202,7 +221,7 @@ export const ImportPasswordsModal: React.FC<Props> = ({ isOpen, onClose, onImpor
             <Button fullWidth loading={importing} onClick={handleImport}>
               Import {entries.length} password{entries.length !== 1 ? 's' : ''}
             </Button>
-            <Button variant="secondary" fullWidth onClick={() => { reset(); }}>
+            <Button variant="secondary" fullWidth onClick={reset}>
               Back
             </Button>
           </div>
@@ -213,8 +232,8 @@ export const ImportPasswordsModal: React.FC<Props> = ({ isOpen, onClose, onImpor
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              {results.filter((r) => r.success).length} of {results.length} imported successfully.
-              Links are in the same order as your spreadsheet.
+              {results.filter((r) => r.success).length} of {results.length} imported. Links are in
+              the same order as your spreadsheet.
             </p>
             <Button size="sm" onClick={handleCopyAllLinks}>
               Copy all links
