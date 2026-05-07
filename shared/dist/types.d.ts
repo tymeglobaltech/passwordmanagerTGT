@@ -78,7 +78,11 @@ export interface PasswordListItem {
     is_active: boolean;
     shareable_link: string;
 }
-export type AccessType = 'view' | 'create' | 'delete';
+export interface UpdatePasswordDto {
+    title?: string;
+    password?: string;
+}
+export type AccessType = 'view' | 'create' | 'delete' | 'update';
 export interface AccessLog {
     id: string;
     password_id: string;

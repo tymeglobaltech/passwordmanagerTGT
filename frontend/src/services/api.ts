@@ -4,6 +4,7 @@ import {
   AuthResponse,
   User,
   CreatePasswordDto,
+  UpdatePasswordDto,
   PasswordListItem,
   RetrievePasswordResponse,
   PaginatedResponse,
@@ -100,11 +101,16 @@ class ApiService {
     return response.data.data;
   }
 
-  async listPasswords(page = 1, limit = 20): Promise<PaginatedResponse<PasswordListItem>> {
+  async listPasswords(page = 1, limit = 20, search = ''): Promise<PaginatedResponse<PasswordListItem>> {
     const response = await this.client.get<{ data: PaginatedResponse<PasswordListItem> }>(
       '/passwords',
-      { params: { page, limit } }
+      { params: { page, limit, ...(search ? { search } : {}) } }
     );
+    return response.data.data;
+  }
+
+  async updatePassword(guid: string, data: UpdatePasswordDto): Promise<PasswordListItem> {
+    const response = await this.client.put<{ data: PasswordListItem }>(`/passwords/${guid}`, data);
     return response.data.data;
   }
 

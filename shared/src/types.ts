@@ -91,8 +91,13 @@ export interface PasswordListItem {
   shareable_link: string;
 }
 
+export interface UpdatePasswordDto {
+  title?: string;
+  password?: string;
+}
+
 // Access Log Types
-export type AccessType = 'view' | 'create' | 'delete';
+export type AccessType = 'view' | 'create' | 'delete' | 'update';
 
 export interface AccessLog {
   id: string;

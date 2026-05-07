@@ -206,6 +206,80 @@ export class PasswordController {
   }
 
   /**
+   * Update password title and/or value (GUID stays the same)
+   */
+  static async updatePassword(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const { guid } = req.params;
+      const { title, password } = req.body;
+
+      const result = await query(
+        'SELECT id, created_by FROM passwords WHERE guid = $1 AND is_active = true',
+        [guid]
+      );
+
+      if (result.rows.length === 0) {
+        throw new AppError('Password not found', 404);
+      }
+
+      const passwordRecord = result.rows[0];
+
+      if (passwordRecord.created_by !== req.user.userId) {
+        throw new AppError('Unauthorized', 403);
+      }
+
+      let updateResult;
+      if (password) {
+        const { encrypted, iv } = EncryptionService.encrypt(password);
+        updateResult = await query(
+          `UPDATE passwords
+           SET title = $1, encrypted_password = $2, encryption_iv = $3, updated_at = NOW()
+           WHERE id = $4
+           RETURNING id, guid, title, created_at, expires_at, max_access_count, current_access_count, is_active`,
+          [title ?? null, encrypted, iv, passwordRecord.id]
+        );
+      } else {
+        updateResult = await query(
+          `UPDATE passwords
+           SET title = $1, updated_at = NOW()
+           WHERE id = $2
+           RETURNING id, guid, title, created_at, expires_at, max_access_count, current_access_count, is_active`,
+          [title ?? null, passwordRecord.id]
+        );
+      }
+
+      const updated = updateResult.rows[0];
+
+      await AuditService.logAccess({
+        passwordId: passwordRecord.id,
+        accessedBy: req.user.userId,
+        ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown',
+        accessType: 'update',
+        success: true,
+      });
+
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';
+
+      res.json({
+        success: true,
+        data: {
+          ...updated,
+          shareable_link: `${frontendUrl}/retrieve/${updated.guid}`,
+        },
+      });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      console.error('Update password error:', error);
+      throw new AppError('Failed to update password', 500);
+    }
+  }
+
+  /**
    * List user's passwords
    */
   static async listPasswords(req: AuthRequest, res: Response) {
@@ -217,11 +291,21 @@ export class PasswordController {
       const page = parseInt(req.query.page as string) || 1;
       const limit = parseInt(req.query.limit as string) || 20;
       const offset = (page - 1) * limit;
+      const search = (req.query.search as string || '').trim();
+
+      const baseCondition = 'created_by = $1 AND is_active = true';
+      const params: any[] = [req.user.userId];
+
+      let searchCondition = '';
+      if (search) {
+        params.push(`%${search}%`);
+        searchCondition = ` AND title ILIKE $${params.length}`;
+      }
 
       // Get total count
       const countResult = await query(
-        'SELECT COUNT(*) FROM passwords WHERE created_by = $1 AND is_active = true',
-        [req.user.userId]
+        `SELECT COUNT(*) FROM passwords WHERE ${baseCondition}${searchCondition}`,
+        params
       );
       const total = parseInt(countResult.rows[0].count);
 
@@ -229,10 +313,10 @@ export class PasswordController {
       const result = await query(
         `SELECT id, guid, title, created_at, expires_at, max_access_count, current_access_count, is_active
          FROM passwords
-         WHERE created_by = $1 AND is_active = true
+         WHERE ${baseCondition}${searchCondition}
          ORDER BY created_at DESC
-         LIMIT $2 OFFSET $3`,
-        [req.user.userId, limit, offset]
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, limit, offset]
       );
 
       const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:3000';

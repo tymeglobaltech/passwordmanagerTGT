@@ -14,7 +14,9 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(grep -E \"\\\\.\\(ts|tsx|js|jsx|json\\)$\")",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\me\\\\Downloads\\\\Projects\\\\PasswordManagerTGT\" -Force)",
+      "Bash(Select-Object Name, PSIsContainer)"
     ]
   }
 }

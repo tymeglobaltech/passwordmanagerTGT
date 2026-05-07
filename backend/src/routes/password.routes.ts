@@ -81,6 +81,22 @@ router.get(
   }
 );
 
+// Update password title/value (GUID unchanged)
+router.put(
+  '/:guid',
+  authenticate,
+  requireInternalUser,
+  runValidations([
+    param('guid').isUUID().withMessage('Invalid GUID format'),
+    body('title').optional().trim(),
+    body('password').optional().notEmpty().withMessage('Password cannot be empty if provided'),
+  ]),
+  validate,
+  (req, res, next) => {
+    PasswordController.updatePassword(req, res).catch(next);
+  }
+);
+
 // Delete password
 router.delete(
   '/:guid',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Layout } from '../components/layout/Layout';
 import { Card } from '../components/common/Card';
@@ -29,6 +29,12 @@ const EyeIcon = () => (
   </svg>
 );
 
+const EyeOffIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+  </svg>
+);
+
 const KeyEmptyIcon = () => (
   <svg className="w-12 h-12 text-gray-300 dark:text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z" />
@@ -47,6 +53,100 @@ const PlusIcon = () => (
   </svg>
 );
 
+const PencilIcon = () => (
+  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+  </svg>
+);
+
+const SearchIcon = () => (
+  <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+  </svg>
+);
+
+interface EditModalProps {
+  password: PasswordListItem;
+  onClose: () => void;
+  onSaved: (updated: PasswordListItem) => void;
+}
+
+const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => {
+  const [title, setTitle] = useState(password.title || '');
+  const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const payload: { title?: string; password?: string } = { title: title || undefined };
+      if (newPassword) payload.password = newPassword;
+      const updated = await api.updatePassword(password.guid, payload);
+      toast.success('Password updated');
+      onSaved(updated);
+    } catch {
+      toast.error('Failed to update password');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md p-6 space-y-5">
+        <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Edit Password</h2>
+
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">Title</label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="Untitled Password"
+            className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm"
+          />
+        </div>
+
+        <div className="space-y-1">
+          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+            New Password
+            <span className="ml-1 text-xs font-normal text-gray-400 dark:text-gray-500">(leave blank to keep current)</span>
+          </label>
+          <div className="relative">
+            <input
+              type={showPassword ? 'text' : 'password'}
+              value={newPassword}
+              onChange={(e) => setNewPassword(e.target.value)}
+              placeholder="Enter new password value…"
+              className="w-full px-4 py-2.5 pr-10 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm font-mono"
+            />
+            <button
+              type="button"
+              onClick={() => setShowPassword((v) => !v)}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-300"
+            >
+              {showPassword ? <EyeOffIcon /> : <EyeIcon />}
+            </button>
+          </div>
+        </div>
+
+        <p className="text-xs text-gray-500 dark:text-gray-400">
+          The shareable link will not change.
+        </p>
+
+        <div className="flex items-center justify-end space-x-3 pt-1">
+          <Button variant="secondary" onClick={onClose} disabled={saving}>Cancel</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? 'Saving…' : 'Save Changes'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const DashboardPage: React.FC = () => {
   const { isExternal } = useAuth();
   const navigate = useNavigate();
@@ -56,15 +156,18 @@ export const DashboardPage: React.FC = () => {
   const [totalPages, setTotalPages] = useState(1);
   const [retrieveUrl, setRetrieveUrl] = useState('');
   const [showImport, setShowImport] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [editingPassword, setEditingPassword] = useState<PasswordListItem | null>(null);
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetchPasswords();
-  }, [page]);
+  }, [page, searchTerm]);
 
   const fetchPasswords = async () => {
     try {
       setLoading(true);
-      const response = await api.listPasswords(page, 20);
+      const response = await api.listPasswords(page, 20, searchTerm);
       setPasswords(response.data);
       setTotalPages(response.totalPages);
     } catch (error) {
@@ -74,11 +177,16 @@ export const DashboardPage: React.FC = () => {
     }
   };
 
-  const handleDelete = async (guid: string) => {
-    if (!confirm('Are you sure you want to delete this password?')) {
-      return;
-    }
+  const handleSearchChange = (value: string) => {
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    searchDebounce.current = setTimeout(() => {
+      setPage(1);
+      setSearchTerm(value);
+    }, 300);
+  };
 
+  const handleDelete = async (guid: string) => {
+    if (!confirm('Are you sure you want to delete this password?')) return;
     try {
       await api.deletePassword(guid);
       toast.success('Password deleted successfully');
@@ -86,6 +194,11 @@ export const DashboardPage: React.FC = () => {
     } catch (error) {
       toast.error('Failed to delete password');
     }
+  };
+
+  const handleEditSaved = (updated: PasswordListItem) => {
+    setPasswords((prev) => prev.map((p) => (p.guid === updated.guid ? { ...p, ...updated } : p)));
+    setEditingPassword(null);
   };
 
   const isExpired = (expiresAt?: Date) => {
@@ -100,7 +213,6 @@ export const DashboardPage: React.FC = () => {
 
   const handleRetrieveUrl = () => {
     const trimmed = retrieveUrl.trim();
-    // Accept full URL or just the GUID
     const match = trimmed.match(/retrieve\/([0-9a-f-]{36})/i) || trimmed.match(/^([0-9a-f-]{36})$/i);
     if (!match) {
       toast.error('Please enter a valid password link or GUID');
@@ -150,7 +262,7 @@ export const DashboardPage: React.FC = () => {
   return (
     <Layout>
       <div className="max-w-6xl mx-auto">
-        <div className="flex items-center justify-between mb-8">
+        <div className="flex items-center justify-between mb-6">
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white">My Passwords</h1>
           <div className="flex items-center space-x-2">
             <Button variant="secondary" onClick={() => setShowImport(true)}>
@@ -167,12 +279,32 @@ export const DashboardPage: React.FC = () => {
           </div>
         </div>
 
+        {/* Search bar */}
+        <div className="mb-6 relative">
+          <div className="absolute inset-y-0 left-3.5 flex items-center pointer-events-none">
+            <SearchIcon />
+          </div>
+          <input
+            type="text"
+            placeholder="Search by title…"
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm transition-colors"
+          />
+        </div>
+
         <ImportPasswordsModal
           isOpen={showImport}
           onClose={() => setShowImport(false)}
           onImported={fetchPasswords}
         />
 
+        {editingPassword && (
+          <EditModal
+            password={editingPassword}
+            onClose={() => setEditingPassword(null)}
+            onSaved={handleEditSaved}
+          />
+        )}
 
         {passwords.length === 0 ? (
           <Card className="text-center py-16">
@@ -180,14 +312,16 @@ export const DashboardPage: React.FC = () => {
               <KeyEmptyIcon />
             </div>
             <h2 className="text-xl font-semibold text-gray-900 dark:text-white mb-2">
-              No passwords yet
+              {searchTerm ? 'No passwords match your search' : 'No passwords yet'}
             </h2>
             <p className="text-gray-500 dark:text-gray-400 mb-6">
-              Generate and save your first secure password
+              {searchTerm ? 'Try a different search term' : 'Generate and save your first secure password'}
             </p>
-            <Link to="/generate">
-              <Button>Generate Password</Button>
-            </Link>
+            {!searchTerm && (
+              <Link to="/generate">
+                <Button>Generate Password</Button>
+              </Link>
+            )}
           </Card>
         ) : (
           <>
@@ -232,6 +366,14 @@ export const DashboardPage: React.FC = () => {
 
                       <div className="flex items-center space-x-2 ml-4">
                         <CopyButton text={password.shareable_link} />
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setEditingPassword(password)}
+                          title="Edit"
+                        >
+                          <PencilIcon />
+                        </Button>
                         <Link to={`/retrieve/${password.guid}`} target="_blank">
                           <Button variant="secondary" size="sm">
                             View
