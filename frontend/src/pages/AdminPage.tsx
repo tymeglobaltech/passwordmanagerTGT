@@ -307,10 +307,10 @@ const UsersTab: React.FC = () => {
           <table className="w-full">
             <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
               <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
-                  Username
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase w-40">
+                  Name
                 </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase w-48">
                   Email
                 </th>
                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
@@ -340,11 +340,11 @@ const UsersTab: React.FC = () => {
               )}
               {filteredUsers.map((user) => (
                 <tr key={user.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors">
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-white">
-                    {user.username}
+                  <td className="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white w-40">
+                    <div className="truncate max-w-[160px]" title={user.full_name || user.username}>{user.full_name || user.username}</div>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                    {user.email}
+                  <td className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 w-48">
+                    <div className="truncate max-w-[192px]" title={user.email}>{user.email}</div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     <span

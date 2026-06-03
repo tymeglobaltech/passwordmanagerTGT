@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS access_logs (
     accessed_by UUID REFERENCES users(id) ON DELETE SET NULL,
     ip_address VARCHAR(45),
     user_agent TEXT,
-    access_type VARCHAR(50) NOT NULL CHECK (access_type IN ('view', 'create', 'delete')),
+    access_type VARCHAR(50) NOT NULL CHECK (access_type IN ('view', 'create', 'delete', 'update')),
     success BOOLEAN DEFAULT true,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
