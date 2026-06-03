@@ -6,7 +6,7 @@ export const generatePassword = (options: PasswordGeneratorOptions): string => {
   if (options.lowercase) charset += 'abcdefghijklmnopqrstuvwxyz';
   if (options.uppercase) charset += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
   if (options.numbers) charset += '0123456789';
-  if (options.symbols) charset += '!@#$%^&*()_+-=[]{}|;:,.<>?';
+  if (options.symbols) charset += '!@#$%^&*()_+-=[]{}|;:.<>?';
 
   if (charset.length === 0) {
     throw new Error('At least one character type must be selected');
