@@ -24,7 +24,7 @@ export class PasswordController {
     if (options.lowercase) charset += 'abcdefghijklmnopqrstuvwxyz';
     if (options.uppercase) charset += 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
     if (options.numbers) charset += '0123456789';
-    if (options.symbols) charset += '!@#$%^&*()_+-=[]{}|;:,.<>?';
+    if (options.symbols) charset += '!@#$%^&*()_+-=[]{}|;:.<>?';
 
     if (charset.length === 0) {
       throw new AppError('At least one character type must be selected', 400);
@@ -67,11 +67,13 @@ export class PasswordController {
         throw new AppError('Authentication required', 401);
       }
 
-      const { password, title, expires_at, max_access_count } = req.body;
+      const { password, title, expires_at, max_access_count, secured_user_ids } = req.body;
 
       if (!password) {
         throw new AppError('Password is required', 400);
       }
+
+      const isSecured = Array.isArray(secured_user_ids) && secured_user_ids.length > 0;
 
       // Encrypt password
       const { encrypted, iv } = EncryptionService.encrypt(password);
@@ -79,13 +81,23 @@ export class PasswordController {
 
       // Save to database
       const result = await query(
-        `INSERT INTO passwords (guid, encrypted_password, encryption_iv, title, created_by, expires_at, max_access_count)
-         VALUES ($1, $2, $3, $4, $5, $6, $7)
-         RETURNING id, guid, title, created_at, expires_at, max_access_count`,
-        [guid, encrypted, iv, title || null, req.user.userId, expires_at || null, max_access_count || null]
+        `INSERT INTO passwords (guid, encrypted_password, encryption_iv, title, created_by, expires_at, max_access_count, is_secured)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         RETURNING id, guid, title, created_at, updated_at, expires_at, max_access_count, is_secured, created_by`,
+        [guid, encrypted, iv, title || null, req.user.userId, expires_at || null, max_access_count || null, isSecured]
       );
 
       const savedPassword = result.rows[0];
+
+      // Insert access control entries for secured passwords
+      if (isSecured) {
+        for (const userId of secured_user_ids) {
+          await query(
+            'INSERT INTO password_access_control (password_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [savedPassword.id, userId]
+          );
+        }
+      }
 
       // Log creation
       await AuditService.logAccess({
@@ -127,7 +139,7 @@ export class PasswordController {
       // Find password
       const result = await query(
         `SELECT id, guid, encrypted_password, encryption_iv, title, expires_at,
-                max_access_count, current_access_count, is_active, created_at
+                max_access_count, current_access_count, is_active, created_at, created_by, is_secured
          FROM passwords
          WHERE guid = $1`,
         [guid]
@@ -155,6 +167,22 @@ export class PasswordController {
         passwordRecord.current_access_count >= passwordRecord.max_access_count
       ) {
         throw new AppError('This password has reached its access limit', 410);
+      }
+
+      // Check secured access control
+      if (passwordRecord.is_secured) {
+        if (!req.user) {
+          throw new AppError('Authentication required to view this password', 401);
+        }
+        if (passwordRecord.created_by !== req.user.userId) {
+          const accessCheck = await query(
+            'SELECT 1 FROM password_access_control WHERE password_id = $1 AND user_id = $2',
+            [passwordRecord.id, req.user.userId]
+          );
+          if (accessCheck.rows.length === 0) {
+            throw new AppError('You do not have permission to view this password', 403);
+          }
+        }
       }
 
       // Decrypt password
@@ -239,7 +267,7 @@ export class PasswordController {
           `UPDATE passwords
            SET title = $1, encrypted_password = $2, encryption_iv = $3, updated_at = NOW()
            WHERE id = $4
-           RETURNING id, guid, title, created_at, expires_at, max_access_count, current_access_count, is_active`,
+           RETURNING id, guid, title, created_at, updated_at, expires_at, max_access_count, current_access_count, is_active, is_secured, created_by`,
           [title ?? null, encrypted, iv, passwordRecord.id]
         );
       } else {
@@ -247,7 +275,7 @@ export class PasswordController {
           `UPDATE passwords
            SET title = $1, updated_at = NOW()
            WHERE id = $2
-           RETURNING id, guid, title, created_at, expires_at, max_access_count, current_access_count, is_active`,
+           RETURNING id, guid, title, created_at, updated_at, expires_at, max_access_count, current_access_count, is_active, is_secured, created_by`,
           [title ?? null, passwordRecord.id]
         );
       }
@@ -280,7 +308,7 @@ export class PasswordController {
   }
 
   /**
-   * List user's passwords
+   * List user's passwords (own + secured ones shared with them)
    */
   static async listPasswords(req: AuthRequest, res: Response) {
     try {
@@ -293,28 +321,34 @@ export class PasswordController {
       const offset = (page - 1) * limit;
       const search = (req.query.search as string || '').trim();
 
-      const baseCondition = 'created_by = $1 AND is_active = true';
       const params: any[] = [req.user.userId];
 
       let searchCondition = '';
       if (search) {
         params.push(`%${search}%`);
-        searchCondition = ` AND title ILIKE $${params.length}`;
+        searchCondition = ` AND p.title ILIKE $${params.length}`;
       }
+
+      const baseJoin = `
+        FROM passwords p
+        LEFT JOIN password_access_control pac ON pac.password_id = p.id AND pac.user_id = $1
+        WHERE p.is_active = true
+          AND (p.created_by = $1 OR pac.user_id IS NOT NULL)
+      `;
 
       // Get total count
       const countResult = await query(
-        `SELECT COUNT(*) FROM passwords WHERE ${baseCondition}${searchCondition}`,
+        `SELECT COUNT(DISTINCT p.id) ${baseJoin}${searchCondition}`,
         params
       );
       const total = parseInt(countResult.rows[0].count);
 
       // Get passwords
       const result = await query(
-        `SELECT id, guid, title, created_at, expires_at, max_access_count, current_access_count, is_active
-         FROM passwords
-         WHERE ${baseCondition}${searchCondition}
-         ORDER BY created_at DESC
+        `SELECT DISTINCT p.id, p.guid, p.title, p.created_at, p.updated_at, p.expires_at,
+                p.max_access_count, p.current_access_count, p.is_active, p.is_secured, p.created_by
+         ${baseJoin}${searchCondition}
+         ORDER BY p.created_at DESC
          LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
         [...params, limit, offset]
       );
@@ -342,6 +376,30 @@ export class PasswordController {
       }
       console.error('List passwords error:', error);
       throw new AppError('Failed to list passwords', 500);
+    }
+  }
+
+  /**
+   * List users available for password sharing (internal users only)
+   */
+  static async getAvailableUsers(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const result = await query(
+        `SELECT id, username, email, full_name FROM users
+         WHERE is_active = true AND role != 'external' AND id != $1
+         ORDER BY username ASC`,
+        [req.user.userId]
+      );
+
+      res.json({ success: true, data: result.rows });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      console.error('Get available users error:', error);
+      throw new AppError('Failed to fetch users', 500);
     }
   }
 

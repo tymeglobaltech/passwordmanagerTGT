@@ -94,6 +94,11 @@ class ApiService {
     return response.data.data;
   }
 
+  async getAvailableUsers(): Promise<{ id: string; username: string; email: string; full_name?: string }[]> {
+    const response = await this.client.get<{ data: { id: string; username: string; email: string; full_name?: string }[] }>('/passwords/available-users');
+    return response.data.data;
+  }
+
   async retrievePassword(guid: string): Promise<RetrievePasswordResponse> {
     const response = await this.client.get<{ data: RetrievePasswordResponse }>(
       `/passwords/${guid}`

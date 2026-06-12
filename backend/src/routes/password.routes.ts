@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { body, param } from 'express-validator';
 import { PasswordController } from '../controllers/password.controller';
-import { authenticate, requireAdmin, requireInternalUser } from '../middleware/auth.middleware';
+import { authenticate, requireAdmin, requireInternalUser, AuthRequest } from '../middleware/auth.middleware';
 import { retrievalLimiter } from '../middleware/rateLimiter.middleware';
 import { runValidations, validate } from '../middleware/validation.middleware';
 
@@ -41,6 +41,16 @@ router.post(
   }
 );
 
+// List users available for sharing (must be before /:guid)
+router.get(
+  '/available-users',
+  authenticate,
+  requireInternalUser,
+  (req, res, next) => {
+    PasswordController.getAvailableUsers(req as AuthRequest, res).catch(next);
+  }
+);
+
 // Save password (internal users only)
 router.post(
   '/',
@@ -51,6 +61,8 @@ router.post(
     body('title').optional().trim(),
     body('expires_at').optional().isISO8601().withMessage('Invalid expiration date'),
     body('max_access_count').optional().isInt({ min: 1 }).withMessage('Max access count must be at least 1'),
+    body('secured_user_ids').optional().isArray().withMessage('secured_user_ids must be an array'),
+    body('secured_user_ids.*').optional().isUUID().withMessage('Each secured user ID must be a valid UUID'),
   ]),
   validate,
   (req, res, next) => {

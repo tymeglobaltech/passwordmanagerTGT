@@ -67,6 +67,7 @@ export interface CreatePasswordDto {
   title?: string;
   expires_at?: Date;
   max_access_count?: number;
+  secured_user_ids?: string[];
 }
 
 export interface RetrievePasswordResponse {
@@ -84,10 +85,13 @@ export interface PasswordListItem {
   guid: string;
   title?: string;
   created_at: Date;
+  updated_at: Date;
   expires_at?: Date;
   max_access_count?: number;
   current_access_count: number;
   is_active: boolean;
+  is_secured: boolean;
+  created_by: string;
   shareable_link: string;
 }
 

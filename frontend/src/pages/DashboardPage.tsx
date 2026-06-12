@@ -10,6 +10,18 @@ import { PasswordListItem } from '@passwordpal/shared';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
+const LockIcon = () => (
+  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+  </svg>
+);
+
+const EditSmallIcon = () => (
+  <svg className="w-4 h-4 text-blue-400 dark:text-blue-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+    <path strokeLinecap="round" strokeLinejoin="round" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+  </svg>
+);
+
 const CalendarIcon = () => (
   <svg className="w-4 h-4 text-gray-400 dark:text-gray-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
     <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -147,8 +159,14 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
   );
 };
 
+const isModified = (password: PasswordListItem) => {
+  const created = new Date(password.created_at).getTime();
+  const updated = new Date(password.updated_at).getTime();
+  return updated - created > 2000;
+};
+
 export const DashboardPage: React.FC = () => {
-  const { isExternal } = useAuth();
+  const { isExternal, user } = useAuth();
   const navigate = useNavigate();
   const [passwords, setPasswords] = useState<PasswordListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -326,20 +344,41 @@ export const DashboardPage: React.FC = () => {
         ) : (
           <>
             <div className="space-y-4">
-              {passwords.map((password) => (
+              {passwords.map((password) => {
+                const isOwner = password.created_by === user?.id;
+                return (
                 <Card key={password.id} padding={false} className="group">
                   <div className="p-5">
                     <div className="flex items-start justify-between">
                       <div className="flex-1">
-                        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-1.5">
-                          {password.title || 'Untitled Password'}
-                        </h3>
+                        <div className="flex items-center space-x-2 mb-1.5">
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">
+                            {password.title || 'Untitled Password'}
+                          </h3>
+                          {password.is_secured && (
+                            <span className="inline-flex items-center space-x-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 border border-amber-200 dark:border-amber-800/50">
+                              <LockIcon />
+                              <span>Secured</span>
+                            </span>
+                          )}
+                          {!isOwner && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border border-blue-200 dark:border-blue-800/50">
+                              Shared with you
+                            </span>
+                          )}
+                        </div>
                         <div className="space-y-1.5 text-sm text-gray-500 dark:text-gray-400">
                           <div className="flex items-center flex-wrap gap-x-4 gap-y-1">
                             <span className="flex items-center space-x-1.5">
                               <CalendarIcon />
                               <span>Created: {new Date(password.created_at).toLocaleDateString()}</span>
                             </span>
+                            {isModified(password) && (
+                              <span className="flex items-center space-x-1.5 text-blue-500 dark:text-blue-400">
+                                <EditSmallIcon />
+                                <span>Modified: {new Date(password.updated_at).toLocaleDateString()}</span>
+                              </span>
+                            )}
                             {password.expires_at && (
                               <span className={`flex items-center space-x-1.5 ${isExpired(password.expires_at) ? 'text-red-500 dark:text-red-400' : ''}`}>
                                 <ClockIcon />
@@ -366,26 +405,30 @@ export const DashboardPage: React.FC = () => {
 
                       <div className="flex items-center space-x-2 ml-4">
                         <CopyButton text={password.shareable_link} />
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setEditingPassword(password)}
-                          title="Edit"
-                        >
-                          <PencilIcon />
-                        </Button>
+                        {isOwner && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setEditingPassword(password)}
+                            title="Edit"
+                          >
+                            <PencilIcon />
+                          </Button>
+                        )}
                         <Link to={`/retrieve/${password.guid}`} target="_blank">
                           <Button variant="secondary" size="sm">
                             View
                           </Button>
                         </Link>
-                        <Button
-                          variant="danger"
-                          size="sm"
-                          onClick={() => handleDelete(password.guid)}
-                        >
-                          Delete
-                        </Button>
+                        {isOwner && (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            onClick={() => handleDelete(password.guid)}
+                          >
+                            Delete
+                          </Button>
+                        )}
                       </div>
                     </div>
 
@@ -403,7 +446,8 @@ export const DashboardPage: React.FC = () => {
                     </div>
                   </div>
                 </Card>
-              ))}
+                );
+              })}
             </div>
 
             {/* Pagination */}
