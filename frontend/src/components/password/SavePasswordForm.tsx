@@ -35,6 +35,7 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
   const [availableUsers, setAvailableUsers] = useState<AvailableUser[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [userSearch, setUserSearch] = useState('');
   const [savedIsSecured, setSavedIsSecured] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -52,6 +53,7 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
     }
     if (!isSecured) {
       setSelectedUserIds([]);
+      setUserSearch('');
     }
   }, [isSecured]);
 
@@ -172,34 +174,62 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
               ) : availableUsers.length === 0 ? (
                 <p className="text-sm text-gray-500 dark:text-gray-400 py-3 text-center">No other users available</p>
               ) : (
-                <div className="max-h-48 overflow-y-auto space-y-1 -mx-1">
-                  {availableUsers.map((user) => {
-                    const selected = selectedUserIds.includes(user.id);
-                    return (
-                      <label
-                        key={user.id}
-                        className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
-                          selected
-                            ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50'
-                            : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={selected}
-                          onChange={() => toggleUser(user.id)}
-                          className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
-                            {user.full_name || user.username}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
-                        </div>
-                      </label>
+                <>
+                  <div className="relative mb-2">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input
+                      type="text"
+                      placeholder="Search users…"
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  {(() => {
+                    const q = userSearch.trim().toLowerCase();
+                    const filtered = q
+                      ? availableUsers.filter(
+                          (u) =>
+                            (u.full_name || u.username).toLowerCase().includes(q) ||
+                            u.email.toLowerCase().includes(q)
+                        )
+                      : availableUsers;
+                    return filtered.length === 0 ? (
+                      <p className="text-sm text-gray-500 dark:text-gray-400 py-3 text-center">No users match your search</p>
+                    ) : (
+                      <div className="max-h-48 overflow-y-auto space-y-1 -mx-1">
+                        {filtered.map((user) => {
+                          const selected = selectedUserIds.includes(user.id);
+                          return (
+                            <label
+                              key={user.id}
+                              className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                                selected
+                                  ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50'
+                                  : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
+                              }`}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={selected}
+                                onChange={() => toggleUser(user.id)}
+                                className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                  {user.full_name || user.username}
+                                </p>
+                                <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{user.email}</p>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
                     );
-                  })}
-                </div>
+                  })()}
+                </>
               )}
               {selectedUserIds.length > 0 && (
                 <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
