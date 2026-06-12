@@ -98,6 +98,8 @@ export interface PasswordListItem {
 export interface UpdatePasswordDto {
   title?: string;
   password?: string;
+  is_secured?: boolean;
+  secured_user_ids?: string[];
 }
 
 // Access Log Types

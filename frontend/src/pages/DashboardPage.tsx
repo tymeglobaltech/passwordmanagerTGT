@@ -77,6 +77,13 @@ const SearchIcon = () => (
   </svg>
 );
 
+interface AvailableUser {
+  id: string;
+  username: string;
+  email: string;
+  full_name?: string;
+}
+
 interface EditModalProps {
   password: PasswordListItem;
   onClose: () => void;
@@ -89,10 +96,60 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
   const [showPassword, setShowPassword] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const [isSecured, setIsSecured] = useState(password.is_secured);
+  const [availableUsers, setAvailableUsers] = useState<AvailableUser[]>([]);
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
+  const [userSearch, setUserSearch] = useState('');
+  const [loadingUsers, setLoadingUsers] = useState(false);
+
+  // On open, load current viewers if already secured
+  useEffect(() => {
+    if (password.is_secured) {
+      setLoadingUsers(true);
+      Promise.all([
+        api.getPasswordViewers(password.guid),
+        api.getAvailableUsers(),
+      ]).then(([viewers, users]) => {
+        setSelectedUserIds(viewers.map((v) => v.id));
+        setAvailableUsers(users);
+      }).catch(() => toast.error('Failed to load viewers')).finally(() => setLoadingUsers(false));
+    }
+  }, []);
+
+  const handleSecureToggle = async () => {
+    const next = !isSecured;
+    setIsSecured(next);
+    if (next && availableUsers.length === 0) {
+      setLoadingUsers(true);
+      api.getAvailableUsers()
+        .then(setAvailableUsers)
+        .catch(() => toast.error('Failed to load users'))
+        .finally(() => setLoadingUsers(false));
+    }
+    if (!next) {
+      setSelectedUserIds([]);
+      setUserSearch('');
+    }
+  };
+
+  const toggleUser = (userId: string) => {
+    setSelectedUserIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]
+    );
+  };
+
   const handleSave = async () => {
+    if (isSecured && selectedUserIds.length === 0) {
+      toast.error('Select at least one user, or turn off Secure my password');
+      return;
+    }
     setSaving(true);
     try {
-      const payload: { title?: string; password?: string } = { title: title || undefined };
+      const payload: { title?: string; password?: string; is_secured: boolean; secured_user_ids: string[] } = {
+        title: title || undefined,
+        is_secured: isSecured,
+        secured_user_ids: isSecured ? selectedUserIds : [],
+      };
       if (newPassword) payload.password = newPassword;
       const updated = await api.updatePassword(password.guid, payload);
       toast.success('Password updated');
@@ -104,10 +161,19 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
     }
   };
 
+  const filteredUsers = (() => {
+    const q = userSearch.trim().toLowerCase();
+    return q
+      ? availableUsers.filter(
+          (u) => (u.full_name || u.username).toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+        )
+      : availableUsers;
+  })();
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={onClose} />
-      <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md p-6 space-y-5">
+      <div className="relative bg-white dark:bg-gray-800 rounded-2xl shadow-xl w-full max-w-md p-6 space-y-5 max-h-[90vh] overflow-y-auto">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white">Edit Password</h2>
 
         <div className="space-y-1">
@@ -142,6 +208,93 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
               {showPassword ? <EyeOffIcon /> : <EyeIcon />}
             </button>
           </div>
+        </div>
+
+        {/* Security settings */}
+        <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
+          <button
+            type="button"
+            onClick={handleSecureToggle}
+            className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
+          >
+            <div className="flex items-center space-x-3">
+              <LockIcon />
+              <div>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Secure my password</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">Restrict access to specific users only</p>
+              </div>
+            </div>
+            <div className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${isSecured ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${isSecured ? 'translate-x-4' : 'translate-x-0'}`} />
+            </div>
+          </button>
+
+          {isSecured && (
+            <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">
+                Who can view this password
+              </p>
+              {loadingUsers ? (
+                <div className="flex items-center justify-center py-6">
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-amber-500 border-t-transparent"></div>
+                </div>
+              ) : availableUsers.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-3 text-center">No other users available</p>
+              ) : (
+                <>
+                  <div className="relative mb-2">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                    </svg>
+                    <input
+                      type="text"
+                      placeholder="Search users…"
+                      value={userSearch}
+                      onChange={(e) => setUserSearch(e.target.value)}
+                      className="w-full pl-8 pr-3 py-2 text-sm border border-gray-200 dark:border-gray-600 rounded-lg bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    />
+                  </div>
+                  {filteredUsers.length === 0 ? (
+                    <p className="text-sm text-gray-500 dark:text-gray-400 py-3 text-center">No users match your search</p>
+                  ) : (
+                    <div className="max-h-44 overflow-y-auto space-y-1 -mx-1">
+                      {filteredUsers.map((u) => {
+                        const selected = selectedUserIds.includes(u.id);
+                        return (
+                          <label
+                            key={u.id}
+                            className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                              selected
+                                ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50'
+                                : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selected}
+                              onChange={() => toggleUser(u.id)}
+                              className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
+                                {u.full_name || u.username}
+                              </p>
+                              <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{u.email}</p>
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  )}
+                  {selectedUserIds.length > 0 && (
+                    <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                      {selectedUserIds.length} user{selectedUserIds.length !== 1 ? 's' : ''} selected
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         <p className="text-xs text-gray-500 dark:text-gray-400">

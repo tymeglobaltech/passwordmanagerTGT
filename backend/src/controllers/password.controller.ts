@@ -234,7 +234,7 @@ export class PasswordController {
   }
 
   /**
-   * Update password title and/or value (GUID stays the same)
+   * Update password title, value, and/or security settings (GUID stays the same)
    */
   static async updatePassword(req: AuthRequest, res: Response) {
     try {
@@ -243,7 +243,7 @@ export class PasswordController {
       }
 
       const { guid } = req.params;
-      const { title, password } = req.body;
+      const { title, password, is_secured, secured_user_ids } = req.body;
 
       const result = await query(
         'SELECT id, created_by FROM passwords WHERE guid = $1 AND is_active = true',
@@ -260,24 +260,59 @@ export class PasswordController {
         throw new AppError('Unauthorized', 403);
       }
 
+      const newIsSecured = typeof is_secured === 'boolean' ? is_secured : undefined;
+
       let updateResult;
       if (password) {
         const { encrypted, iv } = EncryptionService.encrypt(password);
-        updateResult = await query(
-          `UPDATE passwords
-           SET title = $1, encrypted_password = $2, encryption_iv = $3, updated_at = NOW()
-           WHERE id = $4
-           RETURNING id, guid, title, created_at, updated_at, expires_at, max_access_count, current_access_count, is_active, is_secured, created_by`,
-          [title ?? null, encrypted, iv, passwordRecord.id]
-        );
+        if (typeof newIsSecured === 'boolean') {
+          updateResult = await query(
+            `UPDATE passwords
+             SET title = $1, encrypted_password = $2, encryption_iv = $3, is_secured = $4, updated_at = NOW()
+             WHERE id = $5
+             RETURNING id, guid, title, created_at, updated_at, expires_at, max_access_count, current_access_count, is_active, is_secured, created_by`,
+            [title ?? null, encrypted, iv, newIsSecured, passwordRecord.id]
+          );
+        } else {
+          updateResult = await query(
+            `UPDATE passwords
+             SET title = $1, encrypted_password = $2, encryption_iv = $3, updated_at = NOW()
+             WHERE id = $4
+             RETURNING id, guid, title, created_at, updated_at, expires_at, max_access_count, current_access_count, is_active, is_secured, created_by`,
+            [title ?? null, encrypted, iv, passwordRecord.id]
+          );
+        }
       } else {
-        updateResult = await query(
-          `UPDATE passwords
-           SET title = $1, updated_at = NOW()
-           WHERE id = $2
-           RETURNING id, guid, title, created_at, updated_at, expires_at, max_access_count, current_access_count, is_active, is_secured, created_by`,
-          [title ?? null, passwordRecord.id]
-        );
+        if (typeof newIsSecured === 'boolean') {
+          updateResult = await query(
+            `UPDATE passwords
+             SET title = $1, is_secured = $2, updated_at = NOW()
+             WHERE id = $3
+             RETURNING id, guid, title, created_at, updated_at, expires_at, max_access_count, current_access_count, is_active, is_secured, created_by`,
+            [title ?? null, newIsSecured, passwordRecord.id]
+          );
+        } else {
+          updateResult = await query(
+            `UPDATE passwords
+             SET title = $1, updated_at = NOW()
+             WHERE id = $2
+             RETURNING id, guid, title, created_at, updated_at, expires_at, max_access_count, current_access_count, is_active, is_secured, created_by`,
+            [title ?? null, passwordRecord.id]
+          );
+        }
+      }
+
+      // Sync access control list when is_secured is explicitly set
+      if (typeof newIsSecured === 'boolean') {
+        await query('DELETE FROM password_access_control WHERE password_id = $1', [passwordRecord.id]);
+        if (newIsSecured && Array.isArray(secured_user_ids) && secured_user_ids.length > 0) {
+          for (const userId of secured_user_ids) {
+            await query(
+              'INSERT INTO password_access_control (password_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              [passwordRecord.id, userId]
+            );
+          }
+        }
       }
 
       const updated = updateResult.rows[0];
@@ -304,6 +339,47 @@ export class PasswordController {
       if (error instanceof AppError) throw error;
       console.error('Update password error:', error);
       throw new AppError('Failed to update password', 500);
+    }
+  }
+
+  /**
+   * Get the list of users who can view a secured password (owner only)
+   */
+  static async getPasswordViewers(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const { guid } = req.params;
+
+      const pwResult = await query(
+        'SELECT id, created_by FROM passwords WHERE guid = $1 AND is_active = true',
+        [guid]
+      );
+
+      if (pwResult.rows.length === 0) {
+        throw new AppError('Password not found', 404);
+      }
+
+      if (pwResult.rows[0].created_by !== req.user.userId) {
+        throw new AppError('Unauthorized', 403);
+      }
+
+      const viewers = await query(
+        `SELECT u.id, u.username, u.email, u.full_name
+         FROM password_access_control pac
+         JOIN users u ON u.id = pac.user_id
+         WHERE pac.password_id = $1
+         ORDER BY u.username ASC`,
+        [pwResult.rows[0].id]
+      );
+
+      res.json({ success: true, data: viewers.rows });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      console.error('Get viewers error:', error);
+      throw new AppError('Failed to fetch viewers', 500);
     }
   }
 

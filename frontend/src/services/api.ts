@@ -99,6 +99,11 @@ class ApiService {
     return response.data.data;
   }
 
+  async getPasswordViewers(guid: string): Promise<{ id: string; username: string; email: string; full_name?: string }[]> {
+    const response = await this.client.get<{ data: { id: string; username: string; email: string; full_name?: string }[] }>(`/passwords/${guid}/viewers`);
+    return response.data.data;
+  }
+
   async retrievePassword(guid: string): Promise<RetrievePasswordResponse> {
     const response = await this.client.get<{ data: RetrievePasswordResponse }>(
       `/passwords/${guid}`

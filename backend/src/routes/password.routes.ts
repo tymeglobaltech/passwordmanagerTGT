@@ -93,7 +93,19 @@ router.get(
   }
 );
 
-// Update password title/value (GUID unchanged)
+// Get viewers of a secured password (owner only, must be before /:guid)
+router.get(
+  '/:guid/viewers',
+  authenticate,
+  requireInternalUser,
+  runValidations([param('guid').isUUID().withMessage('Invalid GUID format')]),
+  validate,
+  (req, res, next) => {
+    PasswordController.getPasswordViewers(req as AuthRequest, res).catch(next);
+  }
+);
+
+// Update password title/value/security (GUID unchanged)
 router.put(
   '/:guid',
   authenticate,
@@ -102,6 +114,9 @@ router.put(
     param('guid').isUUID().withMessage('Invalid GUID format'),
     body('title').optional().trim(),
     body('password').optional().notEmpty().withMessage('Password cannot be empty if provided'),
+    body('is_secured').optional().isBoolean().withMessage('is_secured must be a boolean'),
+    body('secured_user_ids').optional().isArray().withMessage('secured_user_ids must be an array'),
+    body('secured_user_ids.*').optional().isUUID().withMessage('Each viewer ID must be a valid UUID'),
   ]),
   validate,
   (req, res, next) => {
