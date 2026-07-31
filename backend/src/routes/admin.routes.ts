@@ -36,6 +36,18 @@ router.post(
   }
 );
 
+// Bulk create users
+router.post(
+  '/users/bulk',
+  runValidations([
+    body('entries').isArray({ min: 1, max: 500 }).withMessage('entries must be an array of 1 to 500 items'),
+  ]),
+  validate,
+  (req, res, next) => {
+    AdminController.bulkCreateUsers(req, res).catch(next);
+  }
+);
+
 // Update user
 router.put(
   '/users/:id',

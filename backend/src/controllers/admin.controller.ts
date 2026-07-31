@@ -124,6 +124,101 @@ export class AdminController {
   }
 
   /**
+   * Bulk create users from an imported list (admin only)
+   */
+  static async bulkCreateUsers(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const { entries } = req.body;
+
+      if (!Array.isArray(entries) || entries.length === 0) {
+        throw new AppError('entries must be a non-empty array', 400);
+      }
+
+      if (entries.length > 500) {
+        throw new AppError('Maximum 500 entries per import', 400);
+      }
+
+      const internalDomain = (process.env.ALLOWED_SSO_DOMAIN || 'tymeglobal.com').toLowerCase();
+      const results: Array<{ index: number; username: string; email: string; success: boolean; id?: string; error?: string }> = [];
+
+      // Processed sequentially (not Promise.all) so duplicate username/email checks
+      // stay correct even when the same value appears twice within one CSV.
+      for (let index = 0; index < entries.length; index++) {
+        const entry = entries[index] || {};
+        const username = String(entry.username || '').trim();
+        const email = String(entry.email || '').trim();
+        const full_name = entry.full_name ? String(entry.full_name).trim() : null;
+        const role = ['admin', 'user', 'external'].includes(entry.role) ? entry.role : 'user';
+        const provider = ['local', 'google', 'both'].includes(entry.auth_provider) ? entry.auth_provider : 'local';
+        const password = entry.password ? String(entry.password) : undefined;
+
+        if (!username || !email) {
+          results.push({ index, username, email, success: false, error: 'Username and email are required' });
+          continue;
+        }
+
+        try {
+          const emailDomain = email.split('@')[1]?.toLowerCase();
+          const isExternalUser = emailDomain !== internalDomain && provider !== 'google';
+
+          if (!isExternalUser && provider !== 'google' && !password) {
+            results.push({ index, username, email, success: false, error: 'Password is required for local authentication' });
+            continue;
+          }
+
+          const existingUser = await query(
+            'SELECT id FROM users WHERE username = $1 OR email = $2',
+            [username, email]
+          );
+
+          if (existingUser.rows.length > 0) {
+            results.push({ index, username, email, success: false, error: 'Username or email already exists' });
+            continue;
+          }
+
+          const passwordHash = password ? await bcrypt.hash(password, 12) : null;
+          const setupToken = isExternalUser ? uuidv4() : null;
+          const setupExpires = isExternalUser
+            ? new Date(Date.now() + 24 * 60 * 60 * 1000)
+            : null;
+
+          const inserted = await query(
+            `INSERT INTO users (username, full_name, email, password_hash, role, auth_provider, created_by, password_setup_token, password_setup_expires)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+             RETURNING id`,
+            [username, full_name, email, passwordHash, role, provider, req.user.userId, setupToken, setupExpires]
+          );
+
+          if (isExternalUser && setupToken) {
+            try {
+              await EmailService.sendPasswordSetupEmail(email, full_name || username, setupToken);
+            } catch (emailError) {
+              console.error('Failed to send setup email during bulk import:', emailError);
+            }
+          }
+
+          results.push({ index, username, email, success: true, id: inserted.rows[0].id });
+        } catch (rowError) {
+          console.error('Bulk create user row error:', rowError);
+          results.push({ index, username, email, success: false, error: 'Failed to create user' });
+        }
+      }
+
+      res.status(201).json({ success: true, data: { results } });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      console.error('Bulk create users error:', error);
+      throw new AppError('Failed to bulk create users', 500);
+    }
+  }
+
+  /**
    * Update a user (admin only)
    */
   static async updateUser(req: AuthRequest, res: Response) {

@@ -34,6 +34,24 @@ export interface UpdateUserDto {
   is_active?: boolean;
 }
 
+export interface BulkCreateUserRow {
+  username: string;
+  full_name?: string;
+  email: string;
+  password?: string;
+  role?: UserRole;
+  auth_provider?: AuthProvider;
+}
+
+export interface BulkCreateUserResult {
+  index: number;
+  username: string;
+  email: string;
+  success: boolean;
+  id?: string;
+  error?: string;
+}
+
 export interface LoginDto {
   email: string;
   password: string;

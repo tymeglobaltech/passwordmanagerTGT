@@ -4,6 +4,7 @@ import { Card } from '../components/common/Card';
 import { Button } from '../components/common/Button';
 import { Input } from '../components/common/Input';
 import { Modal } from '../components/common/Modal';
+import { ImportUsersModal } from '../components/admin/ImportUsersModal';
 import { api } from '../services/api';
 import { User, CreateUserDto, UpdateUserDto, AdminStats, AccessLog, AuthProvider } from '@passwordpal/shared';
 import toast from 'react-hot-toast';
@@ -168,6 +169,7 @@ const UsersTab: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showImportModal, setShowImportModal] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editLoading, setEditLoading] = useState(false);
@@ -284,6 +286,9 @@ const UsersTab: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center gap-3 mb-4">
         <Button onClick={() => setShowCreateModal(true)}>
           + Create User
+        </Button>
+        <Button variant="secondary" onClick={() => setShowImportModal(true)}>
+          Import CSV
         </Button>
         <div className="flex-1 relative">
           <input
@@ -581,6 +586,13 @@ const UsersTab: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Import Users Modal */}
+      <ImportUsersModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImported={fetchUsers}
+      />
     </>
   );
 };

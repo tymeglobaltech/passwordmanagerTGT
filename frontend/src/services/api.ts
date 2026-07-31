@@ -10,6 +10,8 @@ import {
   PaginatedResponse,
   CreateUserDto,
   UpdateUserDto,
+  BulkCreateUserRow,
+  BulkCreateUserResult,
   AdminStats,
   AccessLog,
   PasswordGeneratorOptions,
@@ -154,6 +156,11 @@ class ApiService {
 
   async deleteUser(id: string): Promise<void> {
     await this.client.delete(`/admin/users/${id}`);
+  }
+
+  async bulkCreateUsers(entries: BulkCreateUserRow[]): Promise<{ results: BulkCreateUserResult[] }> {
+    const response = await this.client.post<{ data: { results: BulkCreateUserResult[] } }>('/admin/users/bulk', { entries });
+    return response.data.data;
   }
 
   // Admin - Logs and Stats
