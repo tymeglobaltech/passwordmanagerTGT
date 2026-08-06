@@ -104,15 +104,27 @@ export class AdminController {
         [username, full_name || null, email, passwordHash, role, provider, req.user.userId, setupToken, setupExpires]
       );
 
-      // Send setup email to external users
+      // Send setup email to external users. The user row above is already
+      // committed, so an email failure here must not surface as a hard
+      // failure -- otherwise the admin sees "failed" but retrying then hits
+      // the existing-user check above for a row that was actually created.
+      let emailFailed = false;
       if (isExternalUser && setupToken) {
-        const displayName = full_name || username;
-        await EmailService.sendPasswordSetupEmail(email, displayName, setupToken);
+        try {
+          const displayName = full_name || username;
+          await EmailService.sendPasswordSetupEmail(email, displayName, setupToken);
+        } catch (emailError) {
+          console.error('Failed to send setup email:', emailError);
+          emailFailed = true;
+        }
       }
 
       res.status(201).json({
         success: true,
         data: result.rows[0],
+        ...(emailFailed && {
+          warning: 'User created, but the setup email failed to send. Share the password setup link with them manually or contact IT about SMTP.',
+        }),
       });
     } catch (error) {
       if (error instanceof AppError) {

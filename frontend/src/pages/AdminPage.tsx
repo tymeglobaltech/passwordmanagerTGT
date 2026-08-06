@@ -216,8 +216,12 @@ const UsersTab: React.FC = () => {
     try {
       const payload = { ...formData };
       if (!payload.password) delete payload.password;
-      await api.createUser(payload);
-      toast.success('User created successfully');
+      const createdUser = await api.createUser(payload);
+      if (createdUser.warning) {
+        toast.error(createdUser.warning);
+      } else {
+        toast.success('User created successfully');
+      }
       setShowCreateModal(false);
       setFormData({ username: '', full_name: '', email: '', password: '', role: 'user', auth_provider: 'local' });
       fetchUsers();

@@ -31,6 +31,13 @@ export class AuthController {
         throw new AppError('Account is deactivated', 403);
       }
 
+      // External users invited but who haven't completed setup (or Google-only
+      // accounts) have no password_hash yet -- bcrypt.compare throws on null
+      // rather than returning false, so guard explicitly for a clear error.
+      if (!user.password_hash) {
+        throw new AppError('Account setup is incomplete. Check your email for a password setup link, or contact your administrator.', 403);
+      }
+
       // Verify password
       const isValidPassword = await bcrypt.compare(password, user.password_hash);
 

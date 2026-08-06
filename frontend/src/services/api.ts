@@ -144,9 +144,9 @@ class ApiService {
     return response.data.data;
   }
 
-  async createUser(data: CreateUserDto): Promise<User> {
-    const response = await this.client.post<{ data: User }>('/admin/users', data);
-    return response.data.data;
+  async createUser(data: CreateUserDto): Promise<User & { warning?: string }> {
+    const response = await this.client.post<{ data: User; warning?: string }>('/admin/users', data);
+    return { ...response.data.data, warning: response.data.warning };
   }
 
   async updateUser(id: string, data: UpdateUserDto): Promise<User> {
