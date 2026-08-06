@@ -38,7 +38,7 @@ export const LoginPage: React.FC = () => {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
-  const [showLocalLogin, setShowLocalLogin] = useState(false);
+  const [showLocalLogin, setShowLocalLogin] = useState(true);
   const { login, loginWithGoogle } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();

@@ -192,7 +192,8 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
                     const filtered = q
                       ? availableUsers.filter(
                           (u) =>
-                            (u.full_name || u.username).toLowerCase().includes(q) ||
+                            u.username.toLowerCase().includes(q) ||
+                            (u.full_name || '').toLowerCase().includes(q) ||
                             u.email.toLowerCase().includes(q)
                         )
                       : availableUsers;

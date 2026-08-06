@@ -165,7 +165,10 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
     const q = userSearch.trim().toLowerCase();
     return q
       ? availableUsers.filter(
-          (u) => (u.full_name || u.username).toLowerCase().includes(q) || u.email.toLowerCase().includes(q)
+          (u) =>
+            u.username.toLowerCase().includes(q) ||
+            (u.full_name || '').toLowerCase().includes(q) ||
+            u.email.toLowerCase().includes(q)
         )
       : availableUsers;
   })();

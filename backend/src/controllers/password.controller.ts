@@ -466,7 +466,7 @@ export class PasswordController {
 
       const result = await query(
         `SELECT id, username, email, full_name FROM users
-         WHERE is_active = true AND role != 'external' AND id != $1
+         WHERE is_active = true AND id != $1
          ORDER BY username ASC`,
         [req.user.userId]
       );
