@@ -58,6 +58,15 @@ export interface TransferPasswordsResult {
   toUser: string;
 }
 
+export interface TransferPreviewItem {
+  id: string;
+  guid: string;
+  title?: string;
+  updated_at: Date;
+  duplicate: boolean;
+  duplicateReason?: 'target' | 'source';
+}
+
 export interface LoginDto {
   email: string;
   password: string;

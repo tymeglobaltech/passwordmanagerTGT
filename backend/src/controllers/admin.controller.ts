@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { query } from '../database/db';
 import { AuditService } from '../services/audit.service';
 import { EmailService } from '../services/email.service';
+import { EncryptionService } from '../services/encryption.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { AppError } from '../middleware/errorHandler.middleware';
 
@@ -309,18 +310,109 @@ export class AdminController {
   }
 
   /**
-   * Transfer all passwords owned by one user to another user (admin only).
+   * Preview the passwords a transfer would move, flagging ones that look like
+   * duplicates (same title + same decrypted password) either against another
+   * password the source user already owns, or against one the target user
+   * already owns. Only active passwords are shown -- soft-deleted ones are
+   * always carried along by transferPasswords regardless of selection, since
+   * the admin has no way to review something they can't see.
+   */
+  static async getTransferPreview(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const targetUserId = req.query.targetUserId as string;
+
+      if (id === targetUserId) {
+        throw new AppError('Source and target user must be different', 400);
+      }
+
+      const [sourceResult, targetResult] = await Promise.all([
+        query(
+          `SELECT id, guid, title, encrypted_password, encryption_iv, updated_at
+           FROM passwords WHERE created_by = $1 AND is_active = true ORDER BY title`,
+          [id]
+        ),
+        query(
+          `SELECT title, encrypted_password, encryption_iv
+           FROM passwords WHERE created_by = $1 AND is_active = true`,
+          [targetUserId]
+        ),
+      ]);
+
+      const decrypt = (encrypted: string, iv: string): string | null => {
+        try {
+          return EncryptionService.decrypt(encrypted, iv);
+        } catch {
+          return null;
+        }
+      };
+      const normalizeTitle = (title: string | null) => (title || '').trim().toLowerCase();
+
+      const sourceDecrypted = sourceResult.rows.map((row) => ({
+        ...row,
+        titleNorm: normalizeTitle(row.title),
+        plainPassword: decrypt(row.encrypted_password, row.encryption_iv),
+      }));
+
+      const targetDecrypted = targetResult.rows.map((row) => ({
+        titleNorm: normalizeTitle(row.title),
+        plainPassword: decrypt(row.encrypted_password, row.encryption_iv),
+      }));
+
+      const items = sourceDecrypted.map((row, index) => {
+        const matchesTarget = targetDecrypted.some(
+          (t) => t.plainPassword !== null && t.plainPassword === row.plainPassword && t.titleNorm === row.titleNorm
+        );
+        const matchesSource = sourceDecrypted.some(
+          (other, otherIndex) =>
+            otherIndex !== index &&
+            other.plainPassword !== null &&
+            other.plainPassword === row.plainPassword &&
+            other.titleNorm === row.titleNorm
+        );
+
+        return {
+          id: row.id,
+          guid: row.guid,
+          title: row.title,
+          updated_at: row.updated_at,
+          duplicate: matchesTarget || matchesSource,
+          duplicateReason: matchesTarget ? 'target' : matchesSource ? 'source' : undefined,
+        };
+      });
+
+      res.json({ success: true, data: { items } });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      console.error('Transfer preview error:', error);
+      throw new AppError('Failed to load transfer preview', 500);
+    }
+  }
+
+  /**
+   * Transfer passwords owned by one user to another user (admin only).
    * Intended for offboarding: deleting a user hard-deletes their passwords
    * (passwords.created_by has ON DELETE CASCADE), so ownership must be
    * reassigned first to preserve them.
+   *
+   * If passwordIds is provided, only those (plus any already-inactive
+   * passwords, which aren't shown in the review UI) are moved -- this lets an
+   * admin exclude entries flagged as duplicates. If omitted, every password
+   * owned by the source user is transferred.
    */
   static async transferPasswords(req: AuthRequest, res: Response) {
     try {
       const { id } = req.params;
-      const { targetUserId } = req.body;
+      const { targetUserId, passwordIds } = req.body;
 
       if (id === targetUserId) {
         throw new AppError('Source and target user must be different', 400);
+      }
+
+      if (passwordIds !== undefined && !Array.isArray(passwordIds)) {
+        throw new AppError('passwordIds must be an array', 400);
       }
 
       const usersResult = await query(
@@ -338,13 +430,21 @@ export class AdminController {
         throw new AppError('Target user not found', 404);
       }
 
-      const result = await query(
-        `UPDATE passwords
-         SET created_by = $1, updated_at = CURRENT_TIMESTAMP
-         WHERE created_by = $2
-         RETURNING id`,
-        [targetUserId, id]
-      );
+      const result = Array.isArray(passwordIds)
+        ? await query(
+            `UPDATE passwords
+             SET created_by = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE created_by = $2 AND (is_active = false OR id = ANY($3::uuid[]))
+             RETURNING id`,
+            [targetUserId, id, passwordIds]
+          )
+        : await query(
+            `UPDATE passwords
+             SET created_by = $1, updated_at = CURRENT_TIMESTAMP
+             WHERE created_by = $2
+             RETURNING id`,
+            [targetUserId, id]
+          );
 
       res.json({
         success: true,

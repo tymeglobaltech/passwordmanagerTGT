@@ -13,6 +13,7 @@ import {
   BulkCreateUserRow,
   BulkCreateUserResult,
   TransferPasswordsResult,
+  TransferPreviewItem,
   AdminStats,
   AccessLog,
   PasswordGeneratorOptions,
@@ -159,10 +160,18 @@ class ApiService {
     await this.client.delete(`/admin/users/${id}`);
   }
 
-  async transferPasswords(id: string, targetUserId: string): Promise<TransferPasswordsResult> {
+  async getTransferPreview(id: string, targetUserId: string): Promise<TransferPreviewItem[]> {
+    const response = await this.client.get<{ data: { items: TransferPreviewItem[] } }>(
+      `/admin/users/${id}/transfer-preview`,
+      { params: { targetUserId } }
+    );
+    return response.data.data.items;
+  }
+
+  async transferPasswords(id: string, targetUserId: string, passwordIds?: string[]): Promise<TransferPasswordsResult> {
     const response = await this.client.put<{ data: TransferPasswordsResult }>(
       `/admin/users/${id}/transfer-passwords`,
-      { targetUserId }
+      { targetUserId, passwordIds }
     );
     return response.data.data;
   }

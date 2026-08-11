@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { body, param } from 'express-validator';
+import { body, param, query as queryValidator } from 'express-validator';
 import { AdminController } from '../controllers/admin.controller';
 import { authenticate, requireAdmin } from '../middleware/auth.middleware';
 import { runValidations, validate } from '../middleware/validation.middleware';
@@ -69,12 +69,27 @@ router.put(
   }
 );
 
+// Preview a password transfer, flagging likely duplicates
+router.get(
+  '/users/:id/transfer-preview',
+  runValidations([
+    param('id').isUUID().withMessage('Invalid user ID'),
+    queryValidator('targetUserId').isUUID().withMessage('Invalid target user ID'),
+  ]),
+  validate,
+  (req, res, next) => {
+    AdminController.getTransferPreview(req, res).catch(next);
+  }
+);
+
 // Transfer all passwords owned by one user to another
 router.put(
   '/users/:id/transfer-passwords',
   runValidations([
     param('id').isUUID().withMessage('Invalid user ID'),
     body('targetUserId').isUUID().withMessage('Invalid target user ID'),
+    body('passwordIds').optional().isArray().withMessage('passwordIds must be an array'),
+    body('passwordIds.*').isUUID().withMessage('Invalid password ID'),
   ]),
   validate,
   (req, res, next) => {

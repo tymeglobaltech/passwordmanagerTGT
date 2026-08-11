@@ -6,7 +6,7 @@ import { Input } from '../components/common/Input';
 import { Modal } from '../components/common/Modal';
 import { ImportUsersModal } from '../components/admin/ImportUsersModal';
 import { api } from '../services/api';
-import { User, CreateUserDto, UpdateUserDto, AdminStats, AccessLog, AuthProvider } from '@passwordpal/shared';
+import { User, CreateUserDto, UpdateUserDto, AdminStats, AccessLog, AuthProvider, TransferPreviewItem } from '@passwordpal/shared';
 import toast from 'react-hot-toast';
 
 const UsersIcon = () => (
@@ -176,7 +176,11 @@ const UsersTab: React.FC = () => {
   const [editFormData, setEditFormData] = useState<UpdateUserDto>({});
   const [transferringUser, setTransferringUser] = useState<User | null>(null);
   const [transferTargetId, setTransferTargetId] = useState('');
+  const [transferTargetSearch, setTransferTargetSearch] = useState('');
   const [transferLoading, setTransferLoading] = useState(false);
+  const [transferPreview, setTransferPreview] = useState<TransferPreviewItem[]>([]);
+  const [transferPreviewLoading, setTransferPreviewLoading] = useState(false);
+  const [transferSelectedIds, setTransferSelectedIds] = useState<Set<string>>(new Set());
   const [formData, setFormData] = useState<CreateUserDto>({
     username: '',
     full_name: '',
@@ -289,6 +293,42 @@ const UsersTab: React.FC = () => {
   const handleOpenTransfer = (user: User) => {
     setTransferringUser(user);
     setTransferTargetId('');
+    setTransferTargetSearch('');
+    setTransferPreview([]);
+    setTransferSelectedIds(new Set());
+  };
+
+  const handleSelectTransferTarget = async (targetId: string) => {
+    setTransferTargetId(targetId);
+    setTransferPreview([]);
+    setTransferSelectedIds(new Set());
+    if (!targetId || !transferringUser) return;
+
+    setTransferPreviewLoading(true);
+    try {
+      const items = await api.getTransferPreview(transferringUser.id, targetId);
+      setTransferPreview(items);
+      setTransferSelectedIds(new Set(items.map((i) => i.id)));
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to load passwords for transfer');
+    } finally {
+      setTransferPreviewLoading(false);
+    }
+  };
+
+  const toggleTransferSelected = (id: string) => {
+    setTransferSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleTransferSelectAll = () => {
+    setTransferSelectedIds((prev) =>
+      prev.size === transferPreview.length ? new Set() : new Set(transferPreview.map((i) => i.id))
+    );
   };
 
   const handleTransferPasswords = async (e: React.FormEvent) => {
@@ -296,11 +336,15 @@ const UsersTab: React.FC = () => {
     if (!transferringUser || !transferTargetId) return;
     setTransferLoading(true);
     try {
-      const result = await api.transferPasswords(transferringUser.id, transferTargetId);
+      const result = await api.transferPasswords(
+        transferringUser.id,
+        transferTargetId,
+        Array.from(transferSelectedIds)
+      );
       toast.success(
         result.transferred > 0
           ? `Transferred ${result.transferred} password${result.transferred !== 1 ? 's' : ''} from ${result.fromUser} to ${result.toUser}`
-          : `${result.fromUser} had no passwords to transfer`
+          : `No passwords were transferred from ${result.fromUser}`
       );
       setTransferringUser(null);
     } catch (error: any) {
@@ -309,6 +353,20 @@ const UsersTab: React.FC = () => {
       setTransferLoading(false);
     }
   };
+
+  const transferTargetOptions = users
+    .filter((u) => u.id !== transferringUser?.id)
+    .filter((u) => {
+      if (u.id === transferTargetId) return true;
+      const q = transferTargetSearch.trim().toLowerCase();
+      if (!q) return true;
+      return (
+        (u.full_name || '').toLowerCase().includes(q) ||
+        u.username.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q)
+      );
+    })
+    .sort((a, b) => (a.full_name || a.username).localeCompare(b.full_name || b.username));
 
   if (loading) {
     return (
@@ -540,10 +598,11 @@ const UsersTab: React.FC = () => {
         isOpen={!!transferringUser}
         onClose={() => setTransferringUser(null)}
         title={`Transfer Passwords: ${transferringUser?.username}`}
+        size="lg"
       >
         <form onSubmit={handleTransferPasswords} className="space-y-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            Move every password owned by <strong>{transferringUser?.full_name || transferringUser?.username}</strong>{' '}
+            Move passwords owned by <strong>{transferringUser?.full_name || transferringUser?.username}</strong>{' '}
             to another user. The passwords will then appear on that user&apos;s dashboard instead. Use this before
             deleting an offboarded user, since deleting a user permanently deletes any passwords they still own.
           </p>
@@ -551,27 +610,106 @@ const UsersTab: React.FC = () => {
             <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
               Transfer to
             </label>
+            <input
+              type="text"
+              placeholder="Search users by name, username, or email..."
+              value={transferTargetSearch}
+              onChange={(e) => setTransferTargetSearch(e.target.value)}
+              className="w-full mb-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm transition-colors"
+            />
             <select
               value={transferTargetId}
-              onChange={(e) => setTransferTargetId(e.target.value)}
+              onChange={(e) => handleSelectTransferTarget(e.target.value)}
               className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm transition-colors"
               required
+              size={transferTargetSearch.trim() ? Math.min(6, Math.max(2, transferTargetOptions.length)) : undefined}
             >
               <option value="" disabled>
-                Select a user...
+                Select a user... ({transferTargetOptions.length} match{transferTargetOptions.length !== 1 ? 'es' : ''})
               </option>
-              {users
-                .filter((u) => u.id !== transferringUser?.id)
-                .map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name || u.username} ({u.email})
-                  </option>
-                ))}
+              {transferTargetOptions.map((u) => (
+                <option key={u.id} value={u.id}>
+                  {u.full_name || u.username} ({u.email})
+                </option>
+              ))}
             </select>
           </div>
+
+          {transferTargetId && (
+            <div>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Passwords to transfer
+                </label>
+                {transferPreview.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleTransferSelectAll}
+                    className="text-xs font-medium text-primary-600 dark:text-primary-400 hover:underline"
+                  >
+                    {transferSelectedIds.size === transferPreview.length ? 'Deselect all' : 'Select all'}
+                  </button>
+                )}
+              </div>
+
+              {transferPreviewLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-6 w-6 border-2 border-primary-600 border-t-transparent"></div>
+                </div>
+              ) : transferPreview.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-2">
+                  This user has no passwords to transfer.
+                </p>
+              ) : (
+                <div className="max-h-64 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-200 dark:divide-gray-700">
+                  {transferPreview.some((i) => i.duplicate) && (
+                    <div className="px-3 py-2 bg-amber-50 dark:bg-amber-900/20 text-xs text-amber-700 dark:text-amber-300">
+                      Items flagged below have the same title and password as another entry. Review them --
+                      uncheck any true duplicates you don&apos;t want migrated.
+                    </div>
+                  )}
+                  {transferPreview.map((item) => (
+                    <label
+                      key={item.id}
+                      className={`flex items-start gap-3 px-3 py-2 text-sm cursor-pointer ${
+                        item.duplicate ? 'bg-amber-50/60 dark:bg-amber-900/10' : ''
+                      }`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={transferSelectedIds.has(item.id)}
+                        onChange={() => toggleTransferSelected(item.id)}
+                        className="mt-0.5 h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
+                      />
+                      <span className="flex-1 min-w-0">
+                        <span className="block text-gray-900 dark:text-gray-100 truncate">
+                          {item.title || 'Untitled'}
+                        </span>
+                        {item.duplicate && (
+                          <span className="block text-xs text-amber-600 dark:text-amber-400">
+                            Possible duplicate --{' '}
+                            {item.duplicateReason === 'target'
+                              ? 'matches a password the target user already has'
+                              : 'matches another password in this transfer'}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex space-x-2">
-            <Button type="submit" fullWidth loading={transferLoading} disabled={!transferTargetId}>
-              Transfer Passwords
+            <Button
+              type="submit"
+              fullWidth
+              loading={transferLoading}
+              disabled={!transferTargetId || transferPreviewLoading}
+            >
+              Transfer {transferSelectedIds.size > 0 ? `${transferSelectedIds.size} ` : ''}Password
+              {transferSelectedIds.size !== 1 ? 's' : ''}
             </Button>
             <Button
               type="button"
