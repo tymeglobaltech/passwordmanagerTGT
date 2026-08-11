@@ -52,6 +52,12 @@ export interface BulkCreateUserResult {
   error?: string;
 }
 
+export interface TransferPasswordsResult {
+  transferred: number;
+  fromUser: string;
+  toUser: string;
+}
+
 export interface LoginDto {
   email: string;
   password: string;

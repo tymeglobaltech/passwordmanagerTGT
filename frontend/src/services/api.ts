@@ -12,6 +12,7 @@ import {
   UpdateUserDto,
   BulkCreateUserRow,
   BulkCreateUserResult,
+  TransferPasswordsResult,
   AdminStats,
   AccessLog,
   PasswordGeneratorOptions,
@@ -156,6 +157,14 @@ class ApiService {
 
   async deleteUser(id: string): Promise<void> {
     await this.client.delete(`/admin/users/${id}`);
+  }
+
+  async transferPasswords(id: string, targetUserId: string): Promise<TransferPasswordsResult> {
+    const response = await this.client.put<{ data: TransferPasswordsResult }>(
+      `/admin/users/${id}/transfer-passwords`,
+      { targetUserId }
+    );
+    return response.data.data;
   }
 
   async bulkCreateUsers(entries: BulkCreateUserRow[]): Promise<{ results: BulkCreateUserResult[] }> {

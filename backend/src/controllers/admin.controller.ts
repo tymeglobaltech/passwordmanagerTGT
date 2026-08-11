@@ -309,6 +309,61 @@ export class AdminController {
   }
 
   /**
+   * Transfer all passwords owned by one user to another user (admin only).
+   * Intended for offboarding: deleting a user hard-deletes their passwords
+   * (passwords.created_by has ON DELETE CASCADE), so ownership must be
+   * reassigned first to preserve them.
+   */
+  static async transferPasswords(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { targetUserId } = req.body;
+
+      if (id === targetUserId) {
+        throw new AppError('Source and target user must be different', 400);
+      }
+
+      const usersResult = await query(
+        'SELECT id, username FROM users WHERE id IN ($1, $2)',
+        [id, targetUserId]
+      );
+
+      const sourceUser = usersResult.rows.find((u) => u.id === id);
+      const targetUser = usersResult.rows.find((u) => u.id === targetUserId);
+
+      if (!sourceUser) {
+        throw new AppError('Source user not found', 404);
+      }
+      if (!targetUser) {
+        throw new AppError('Target user not found', 404);
+      }
+
+      const result = await query(
+        `UPDATE passwords
+         SET created_by = $1, updated_at = CURRENT_TIMESTAMP
+         WHERE created_by = $2
+         RETURNING id`,
+        [targetUserId, id]
+      );
+
+      res.json({
+        success: true,
+        data: {
+          transferred: result.rows.length,
+          fromUser: sourceUser.username,
+          toUser: targetUser.username,
+        },
+      });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      console.error('Transfer passwords error:', error);
+      throw new AppError('Failed to transfer passwords', 500);
+    }
+  }
+
+  /**
    * Delete a user (admin only)
    */
   static async deleteUser(req: AuthRequest, res: Response) {

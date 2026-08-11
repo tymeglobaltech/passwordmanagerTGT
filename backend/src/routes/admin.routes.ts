@@ -69,6 +69,19 @@ router.put(
   }
 );
 
+// Transfer all passwords owned by one user to another
+router.put(
+  '/users/:id/transfer-passwords',
+  runValidations([
+    param('id').isUUID().withMessage('Invalid user ID'),
+    body('targetUserId').isUUID().withMessage('Invalid target user ID'),
+  ]),
+  validate,
+  (req, res, next) => {
+    AdminController.transferPasswords(req, res).catch(next);
+  }
+);
+
 // Delete user
 router.delete(
   '/users/:id',

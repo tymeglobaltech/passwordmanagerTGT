@@ -174,6 +174,9 @@ const UsersTab: React.FC = () => {
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [editLoading, setEditLoading] = useState(false);
   const [editFormData, setEditFormData] = useState<UpdateUserDto>({});
+  const [transferringUser, setTransferringUser] = useState<User | null>(null);
+  const [transferTargetId, setTransferTargetId] = useState('');
+  const [transferLoading, setTransferLoading] = useState(false);
   const [formData, setFormData] = useState<CreateUserDto>({
     username: '',
     full_name: '',
@@ -264,7 +267,13 @@ const UsersTab: React.FC = () => {
   };
 
   const handleDeleteUser = async (user: User) => {
-    if (!confirm(`Are you sure you want to delete user "${user.username}"?`)) {
+    if (
+      !confirm(
+        `Are you sure you want to delete user "${user.username}"?\n\n` +
+          `This permanently deletes every password they own. If they still own passwords you want to keep, ` +
+          `use "Transfer Passwords" to move them to another user first.`
+      )
+    ) {
       return;
     }
 
@@ -274,6 +283,30 @@ const UsersTab: React.FC = () => {
       fetchUsers();
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to delete user');
+    }
+  };
+
+  const handleOpenTransfer = (user: User) => {
+    setTransferringUser(user);
+    setTransferTargetId('');
+  };
+
+  const handleTransferPasswords = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!transferringUser || !transferTargetId) return;
+    setTransferLoading(true);
+    try {
+      const result = await api.transferPasswords(transferringUser.id, transferTargetId);
+      toast.success(
+        result.transferred > 0
+          ? `Transferred ${result.transferred} password${result.transferred !== 1 ? 's' : ''} from ${result.fromUser} to ${result.toUser}`
+          : `${result.fromUser} had no passwords to transfer`
+      );
+      setTransferringUser(null);
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to transfer passwords');
+    } finally {
+      setTransferLoading(false);
     }
   };
 
@@ -413,6 +446,13 @@ const UsersTab: React.FC = () => {
                       {user.is_active ? 'Deactivate' : 'Activate'}
                     </Button>
                     <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={() => handleOpenTransfer(user)}
+                    >
+                      Transfer Passwords
+                    </Button>
+                    <Button
                       variant="danger"
                       size="sm"
                       onClick={() => handleDeleteUser(user)}
@@ -488,6 +528,56 @@ const UsersTab: React.FC = () => {
               variant="secondary"
               fullWidth
               onClick={() => setEditingUser(null)}
+            >
+              Cancel
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Transfer Passwords Modal */}
+      <Modal
+        isOpen={!!transferringUser}
+        onClose={() => setTransferringUser(null)}
+        title={`Transfer Passwords: ${transferringUser?.username}`}
+      >
+        <form onSubmit={handleTransferPasswords} className="space-y-4">
+          <p className="text-sm text-gray-500 dark:text-gray-400">
+            Move every password owned by <strong>{transferringUser?.full_name || transferringUser?.username}</strong>{' '}
+            to another user. The passwords will then appear on that user&apos;s dashboard instead. Use this before
+            deleting an offboarded user, since deleting a user permanently deletes any passwords they still own.
+          </p>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              Transfer to
+            </label>
+            <select
+              value={transferTargetId}
+              onChange={(e) => setTransferTargetId(e.target.value)}
+              className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm transition-colors"
+              required
+            >
+              <option value="" disabled>
+                Select a user...
+              </option>
+              {users
+                .filter((u) => u.id !== transferringUser?.id)
+                .map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name || u.username} ({u.email})
+                  </option>
+                ))}
+            </select>
+          </div>
+          <div className="flex space-x-2">
+            <Button type="submit" fullWidth loading={transferLoading} disabled={!transferTargetId}>
+              Transfer Passwords
+            </Button>
+            <Button
+              type="button"
+              variant="secondary"
+              fullWidth
+              onClick={() => setTransferringUser(null)}
             >
               Cancel
             </Button>
