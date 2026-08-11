@@ -5,6 +5,7 @@ import { useTheme } from '../../context/ThemeContext';
 
 interface LayoutProps {
   children: React.ReactNode;
+  maxWidthClassName?: string;
 }
 
 const DashboardIcon = () => (
@@ -44,7 +45,7 @@ const iconMap: Record<string, React.FC> = {
   '/admin': CogIcon,
 };
 
-export const Layout: React.FC<LayoutProps> = ({ children }) => {
+export const Layout: React.FC<LayoutProps> = ({ children, maxWidthClassName = 'max-w-7xl' }) => {
   const { user, isAdmin, isExternal, logout } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const location = useLocation();
@@ -200,7 +201,7 @@ export const Layout: React.FC<LayoutProps> = ({ children }) => {
       </header>
 
       {/* Main Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <main className={`${maxWidthClassName} mx-auto px-4 sm:px-6 lg:px-8 py-8`}>
         {children}
       </main>
     </div>

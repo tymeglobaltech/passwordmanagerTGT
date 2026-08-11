@@ -50,8 +50,8 @@ export const AdminPage: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'users' | 'logs' | 'stats'>('stats');
 
   return (
-    <Layout>
-      <div className="max-w-7xl mx-auto">
+    <Layout maxWidthClassName="max-w-[1600px]">
+      <div>
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">Admin Panel</h1>
 
         {/* Tabs */}
@@ -450,7 +450,7 @@ const UsersTab: React.FC = () => {
                       size="sm"
                       onClick={() => handleOpenTransfer(user)}
                     >
-                      Transfer Passwords
+                      Transfer
                     </Button>
                     <Button
                       variant="danger"
