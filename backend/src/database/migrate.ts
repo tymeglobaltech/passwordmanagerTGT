@@ -19,6 +19,7 @@ const runMigrations = async () => {
       path.join(__dirname, 'migrations', '003_add_full_name_and_setup_token.sql'),
       path.join(__dirname, 'migrations', '004_add_external_role.sql'),
       path.join(__dirname, 'migrations', '005_add_password_access_control.sql'),
+      path.join(__dirname, 'migrations', '006_add_password_changed_at.sql'),
     ];
 
     for (const sqlPath of sqlFiles) {

@@ -81,6 +81,8 @@ ENCRYPTION_KEY=REPLACE_ME
 JWT_SECRET=REPLACE_ME
 FRONTEND_URL=https://your-domain.com
 CORS_ORIGINS=https://your-domain.com
+# Optional: days before external users must change their password (default 90)
+EXTERNAL_PASSWORD_EXPIRY_DAYS=90
 GOOGLE_CLIENT_ID=your-google-client-id
 ALLOWED_SSO_DOMAIN=your-company-domain.com
 EOF

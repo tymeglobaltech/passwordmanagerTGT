@@ -7,6 +7,13 @@ import { runValidations, validate } from '../middleware/validation.middleware';
 
 const router = Router();
 
+const newPasswordRules = (field: string) =>
+  body(field)
+    .isLength({ min: 8 })
+    .withMessage('Password must be at least 8 characters')
+    .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
+    .withMessage('Password must contain uppercase, lowercase, number, and special character');
+
 // Login
 router.post(
   '/login',
@@ -18,6 +25,21 @@ router.post(
   validate,
   (req, res, next) => {
     AuthController.login(req, res).catch(next);
+  }
+);
+
+// Change an expired password (external users)
+router.post(
+  '/change-expired-password',
+  loginLimiter,
+  runValidations([
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('currentPassword').notEmpty().withMessage('Current password is required'),
+    newPasswordRules('newPassword'),
+  ]),
+  validate,
+  (req, res, next) => {
+    AuthController.changeExpiredPassword(req, res).catch(next);
   }
 );
 
@@ -48,11 +70,7 @@ router.post(
   '/set-password',
   runValidations([
     body('token').notEmpty().withMessage('Setup token is required'),
-    body('password')
-      .isLength({ min: 8 })
-      .withMessage('Password must be at least 8 characters')
-      .matches(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/)
-      .withMessage('Password must contain uppercase, lowercase, number, and special character'),
+    newPasswordRules('password'),
   ]),
   validate,
   (req, res, next) => {

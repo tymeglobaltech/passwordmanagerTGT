@@ -71,6 +71,15 @@ class ApiService {
     return response.data.data;
   }
 
+  async changeExpiredPassword(email: string, currentPassword: string, newPassword: string): Promise<AuthResponse> {
+    const response = await this.client.post<{ data: AuthResponse }>('/auth/change-expired-password', {
+      email,
+      currentPassword,
+      newPassword,
+    });
+    return response.data.data;
+  }
+
   async getCurrentUser(): Promise<User> {
     const response = await this.client.get<{ data: User }>('/auth/me');
     return response.data.data;

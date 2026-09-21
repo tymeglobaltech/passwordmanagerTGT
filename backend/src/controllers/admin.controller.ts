@@ -99,10 +99,10 @@ export class AdminController {
 
       // Create user
       const result = await query(
-        `INSERT INTO users (username, full_name, email, password_hash, role, auth_provider, created_by, password_setup_token, password_setup_expires)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        `INSERT INTO users (username, full_name, email, password_hash, role, auth_provider, created_by, password_setup_token, password_setup_expires, password_changed_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
          RETURNING id, username, full_name, email, role, auth_provider, is_active, created_by, created_at, updated_at`,
-        [username, full_name || null, email, passwordHash, role, provider, req.user.userId, setupToken, setupExpires]
+        [username, full_name || null, email, passwordHash, role, provider, req.user.userId, setupToken, setupExpires, passwordHash ? new Date() : null]
       );
 
       // Send setup email to external users. The user row above is already
@@ -200,10 +200,10 @@ export class AdminController {
             : null;
 
           const inserted = await query(
-            `INSERT INTO users (username, full_name, email, password_hash, role, auth_provider, created_by, password_setup_token, password_setup_expires)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            `INSERT INTO users (username, full_name, email, password_hash, role, auth_provider, created_by, password_setup_token, password_setup_expires, password_changed_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
              RETURNING id`,
-            [username, full_name, email, passwordHash, role, provider, req.user.userId, setupToken, setupExpires]
+            [username, full_name, email, passwordHash, role, provider, req.user.userId, setupToken, setupExpires, passwordHash ? new Date() : null]
           );
 
           if (isExternalUser && setupToken) {
@@ -263,6 +263,7 @@ export class AdminController {
         const passwordHash = await bcrypt.hash(password, 12);
         updates.push(`password_hash = $${paramIndex++}`);
         values.push(passwordHash);
+        updates.push('password_changed_at = CURRENT_TIMESTAMP');
       }
 
       if (role !== undefined) {

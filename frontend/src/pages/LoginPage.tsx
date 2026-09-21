@@ -39,7 +39,10 @@ export const LoginPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
   const [showLocalLogin, setShowLocalLogin] = useState(true);
-  const { login, loginWithGoogle } = useAuth();
+  const [passwordExpired, setPasswordExpired] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const { login, loginWithGoogle, changeExpiredPassword } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const navigate = useNavigate();
   const location = useLocation();
@@ -98,10 +101,42 @@ export const LoginPage: React.FC = () => {
       toast.success('Login successful!');
       navigate(from, { replace: true });
     } catch (error: any) {
-      toast.error(error.response?.data?.error || 'Login failed');
+      if (error.response?.data?.code === 'PASSWORD_EXPIRED') {
+        setPasswordExpired(true);
+      } else {
+        toast.error(error.response?.data?.error || 'Login failed');
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleChangeExpiredPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+
+    if (newPassword !== confirmPassword) {
+      toast.error('Passwords do not match');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      await changeExpiredPassword(email, password, newPassword);
+      toast.success('Password changed. You are now signed in.');
+      navigate(from, { replace: true });
+    } catch (error: any) {
+      const details = error.response?.data?.details;
+      toast.error(details?.[0]?.msg || error.response?.data?.error || 'Failed to change password');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const cancelPasswordChange = () => {
+    setPasswordExpired(false);
+    setPassword('');
+    setNewPassword('');
+    setConfirmPassword('');
   };
 
   return (
@@ -155,7 +190,50 @@ export const LoginPage: React.FC = () => {
             <div className="flex-1 border-t border-gray-300 dark:border-gray-600"></div>
           </button>
 
-          {showLocalLogin && (
+          {showLocalLogin && passwordExpired && (
+            <form onSubmit={handleChangeExpiredPassword} className="space-y-4 mt-4">
+              <div className="rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 p-3 text-sm text-amber-800 dark:text-amber-200">
+                Your password has expired. Choose a new password to continue.
+              </div>
+
+              <Input
+                label="New Password"
+                type="password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                helperText="Min 8 chars, must include uppercase, lowercase, number, and symbol"
+                required
+                autoFocus
+              />
+
+              <Input
+                label="Confirm New Password"
+                type="password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                required
+              />
+
+              <Button
+                type="submit"
+                fullWidth
+                loading={loading}
+                disabled={!newPassword || !confirmPassword}
+              >
+                Change Password & Sign In
+              </Button>
+
+              <button
+                type="button"
+                onClick={cancelPasswordChange}
+                className="w-full text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 transition-colors"
+              >
+                Back to sign in
+              </button>
+            </form>
+          )}
+
+          {showLocalLogin && !passwordExpired && (
             <form onSubmit={handleSubmit} className="space-y-4 mt-4">
               <Input
                 label="Email"

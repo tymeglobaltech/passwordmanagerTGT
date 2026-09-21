@@ -6,6 +6,20 @@ import { GoogleAuthService } from '../services/google.service';
 import { AuthRequest } from '../middleware/auth.middleware';
 import { AppError } from '../middleware/errorHandler.middleware';
 
+// External users must change their password after this many days
+const EXTERNAL_PASSWORD_EXPIRY_DAYS = parseInt(process.env.EXTERNAL_PASSWORD_EXPIRY_DAYS || '90', 10);
+
+// Selects the user plus a computed password_expired flag. Expiry is worked out in
+// SQL so it uses the same clock that stamped password_changed_at. A missing
+// timestamp counts as expired: the user just sets a new password, no lockout.
+const SELECT_USER_WITH_EXPIRY = `
+  SELECT *,
+    (role = 'external'
+      AND (password_changed_at IS NULL
+           OR password_changed_at < CURRENT_TIMESTAMP - make_interval(days => $2))
+    ) AS password_expired
+  FROM users WHERE email = $1`;
+
 export class AuthController {
   /**
    * User login
@@ -15,10 +29,7 @@ export class AuthController {
       const { email, password } = req.body;
 
       // Find user
-      const result = await query(
-        'SELECT * FROM users WHERE email = $1',
-        [email]
-      );
+      const result = await query(SELECT_USER_WITH_EXPIRY, [email, EXTERNAL_PASSWORD_EXPIRY_DAYS]);
 
       if (result.rows.length === 0) {
         throw new AppError('Invalid credentials', 401);
@@ -45,6 +56,16 @@ export class AuthController {
         throw new AppError('Invalid credentials', 401);
       }
 
+      // Only reveal expiry once the correct password was supplied. No token is
+      // issued; the client must go through change-expired-password.
+      if (user.password_expired) {
+        throw new AppError(
+          'Your password has expired. Please choose a new password to continue.',
+          403,
+          'PASSWORD_EXPIRED'
+        );
+      }
+
       // Update last login
       await query(
         'UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE id = $1',
@@ -60,7 +81,7 @@ export class AuthController {
       });
 
       // Return user data (without password hash)
-      const { password_hash, ...userData } = user;
+      const { password_hash, password_expired, ...userData } = user;
 
       res.json({
         success: true,
@@ -74,6 +95,65 @@ export class AuthController {
         throw error;
       }
       throw new AppError('Login failed', 500);
+    }
+  }
+
+  /**
+   * Change an expired password (external users). Unauthenticated because an
+   * expired login is refused a token; the current password is re-verified here.
+   * On success the user is logged in.
+   */
+  static async changeExpiredPassword(req: AuthRequest, res: Response) {
+    try {
+      const { email, currentPassword, newPassword } = req.body;
+
+      const result = await query(SELECT_USER_WITH_EXPIRY, [email, EXTERNAL_PASSWORD_EXPIRY_DAYS]);
+      const user = result.rows[0];
+
+      if (!user || !user.password_hash || !(await bcrypt.compare(currentPassword, user.password_hash))) {
+        throw new AppError('Current password is incorrect', 400);
+      }
+
+      if (!user.is_active) {
+        throw new AppError('Account is deactivated', 403);
+      }
+
+      if (!user.password_expired) {
+        throw new AppError('Your password has not expired', 400);
+      }
+
+      if (await bcrypt.compare(newPassword, user.password_hash)) {
+        throw new AppError('New password must be different from your current password', 400);
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+
+      await query(
+        `UPDATE users
+         SET password_hash = $1, password_changed_at = CURRENT_TIMESTAMP, last_login = CURRENT_TIMESTAMP
+         WHERE id = $2`,
+        [passwordHash, user.id]
+      );
+
+      const token = JWTService.generateToken({
+        userId: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+      });
+
+      const { password_hash, password_expired, ...userData } = user;
+
+      res.json({
+        success: true,
+        data: {
+          token,
+          user: userData,
+        },
+      });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      throw new AppError('Failed to change password', 500);
     }
   }
 
@@ -202,7 +282,8 @@ export class AuthController {
 
       await query(
         `UPDATE users
-         SET password_hash = $1, password_setup_token = NULL, password_setup_expires = NULL
+         SET password_hash = $1, password_setup_token = NULL, password_setup_expires = NULL,
+             password_changed_at = CURRENT_TIMESTAMP
          WHERE id = $2`,
         [passwordHash, userId]
       );

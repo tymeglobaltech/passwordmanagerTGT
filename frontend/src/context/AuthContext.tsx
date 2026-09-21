@@ -10,6 +10,7 @@ interface AuthContextType {
   isExternal: boolean;
   login: (email: string, password: string) => Promise<void>;
   loginWithGoogle: (idToken: string) => Promise<void>;
+  changeExpiredPassword: (email: string, currentPassword: string, newPassword: string) => Promise<void>;
   logout: () => void;
   loading: boolean;
 }
@@ -54,6 +55,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     localStorage.setItem('user', JSON.stringify(response.user));
   };
 
+  const changeExpiredPassword = async (email: string, currentPassword: string, newPassword: string) => {
+    const response = await api.changeExpiredPassword(email, currentPassword, newPassword);
+
+    setToken(response.token);
+    setUser(response.user);
+
+    localStorage.setItem('token', response.token);
+    localStorage.setItem('user', JSON.stringify(response.user));
+  };
+
   const logout = () => {
     api.logout().catch(() => {
       // Ignore errors on logout
@@ -73,6 +84,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isExternal: user?.role === 'external',
     login,
     loginWithGoogle,
+    changeExpiredPassword,
     logout,
     loading,
   };
