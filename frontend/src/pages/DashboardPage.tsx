@@ -168,10 +168,6 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
   };
 
   const handleSave = async () => {
-    if (isSecured && selectedUserIds.length === 0 && selectedGroupIds.length === 0) {
-      toast.error('Select at least one user or group, or turn off Secure my password');
-      return;
-    }
     setSaving(true);
     try {
       const payload: { title?: string; password?: string; is_secured: boolean; secured_user_ids: string[]; group_ids: string[] } = {
@@ -254,7 +250,9 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
               <LockIcon />
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">Secure my password</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Restrict access to specific users only</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Restrict access -- to just you, or to specific users/groups below
+                </p>
               </div>
             </div>
             <div className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${isSecured ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
@@ -264,8 +262,12 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
 
           {isSecured && (
             <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Leave everything below unselected to keep this password for your eyes only. Pick users and/or a group
+                to additionally share it with them.
+              </p>
               <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">
-                Who can view this password
+                Who else can view this password
               </p>
               {loadingUsers ? (
                 <div className="flex items-center justify-center py-6">

@@ -67,7 +67,7 @@ export class PasswordController {
         throw new AppError('Authentication required', 401);
       }
 
-      const { password, title, expires_at, max_access_count, secured_user_ids, group_ids } = req.body;
+      const { password, title, expires_at, max_access_count, secured_user_ids, group_ids, is_secured } = req.body;
 
       if (!password) {
         throw new AppError('Password is required', 400);
@@ -75,7 +75,11 @@ export class PasswordController {
 
       const hasUserShares = Array.isArray(secured_user_ids) && secured_user_ids.length > 0;
       const hasGroupShares = Array.isArray(group_ids) && group_ids.length > 0;
-      const isSecured = hasUserShares || hasGroupShares;
+      // An explicit is_secured lets a password be secured with no shares at
+      // all -- owner-only, not viewable by just anyone holding the link.
+      // Callers that don't pass it keep the old behavior of inferring it
+      // from whether any shares were given.
+      const isSecured = typeof is_secured === 'boolean' ? is_secured : hasUserShares || hasGroupShares;
 
       // Encrypt password
       const { encrypted, iv } = EncryptionService.encrypt(password);

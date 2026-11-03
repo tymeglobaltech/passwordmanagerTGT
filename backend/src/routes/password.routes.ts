@@ -71,6 +71,7 @@ router.post(
     body('title').optional().trim(),
     body('expires_at').optional().isISO8601().withMessage('Invalid expiration date'),
     body('max_access_count').optional().isInt({ min: 1 }).withMessage('Max access count must be at least 1'),
+    body('is_secured').optional().isBoolean().withMessage('is_secured must be a boolean'),
     body('secured_user_ids').optional().isArray().withMessage('secured_user_ids must be an array'),
     body('secured_user_ids.*').optional().isUUID().withMessage('Each secured user ID must be a valid UUID'),
     body('group_ids').optional().isArray().withMessage('group_ids must be an array'),

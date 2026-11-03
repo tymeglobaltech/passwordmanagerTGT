@@ -122,6 +122,7 @@ export interface CreatePasswordDto {
   title?: string;
   expires_at?: Date;
   max_access_count?: number;
+  is_secured?: boolean;
   secured_user_ids?: string[];
   group_ids?: string[];
 }

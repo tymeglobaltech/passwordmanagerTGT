@@ -45,6 +45,7 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
   const [savedIsSecured, setSavedIsSecured] = useState(false);
+  const [savedHadShares, setSavedHadShares] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
     expires_at: '',
@@ -88,11 +89,6 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isSecured && selectedUserIds.length === 0 && selectedGroupIds.length === 0) {
-      toast.error('Please select at least one user or group to secure this password for');
-      return;
-    }
-
     setLoading(true);
 
     try {
@@ -101,6 +97,7 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
         title: formData.title || undefined,
         expires_at: formData.expires_at ? new Date(formData.expires_at) : undefined,
         max_access_count: formData.max_access_count ? parseInt(formData.max_access_count) : undefined,
+        is_secured: isSecured,
         secured_user_ids: isSecured ? selectedUserIds : undefined,
         group_ids: isSecured ? selectedGroupIds : undefined,
       };
@@ -108,6 +105,7 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
       const result = await api.savePassword(data);
       setShareableLink(result.shareable_link);
       setSavedIsSecured(isSecured);
+      setSavedHadShares(selectedUserIds.length > 0 || selectedGroupIds.length > 0);
       setShowLinkModal(true);
       toast.success('Password saved successfully!');
 
@@ -170,7 +168,9 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
               <LockIcon />
               <div>
                 <p className="text-sm font-medium text-gray-900 dark:text-white">Secure my password</p>
-                <p className="text-xs text-gray-500 dark:text-gray-400">Restrict access to specific users only</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  Restrict access -- to just you, or to specific users/groups below
+                </p>
               </div>
             </div>
             <div
@@ -188,8 +188,12 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
 
           {isSecured && (
             <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+              <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
+                Leave everything below unselected to keep this password for your eyes only. Pick users and/or a group
+                to additionally share it with them.
+              </p>
               <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">
-                Select who can view this password
+                Select who else can view this password
               </p>
               {loadingUsers ? (
                 <div className="flex items-center justify-center py-6">
@@ -324,8 +328,10 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
       >
         <div className="space-y-4">
           <p className="text-sm text-gray-500 dark:text-gray-400">
-            {savedIsSecured
-              ? 'Your password has been saved and secured. Only the selected users can access it via this link.'
+            {savedIsSecured && savedHadShares
+              ? 'Your password has been saved and secured. Only you and the users/groups you selected can access it via this link.'
+              : savedIsSecured
+              ? 'Your password has been saved and secured for your eyes only. Nobody else -- even with this link -- can access it.'
               : 'Your password has been saved. Share this link with anyone who needs access:'}
           </p>
 
@@ -339,11 +345,18 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
             <CopyButton text={shareableLink} />
           </div>
 
-          {savedIsSecured ? (
+          {savedIsSecured && savedHadShares ? (
             <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-3 flex items-start space-x-2">
               <LockIcon />
               <p className="text-sm text-amber-800 dark:text-amber-300">
-                <strong>Secured:</strong> Only the users you selected can view this password. Others will be denied access.
+                <strong>Secured:</strong> Only you and the users/groups you selected can view this password. Others will be denied access.
+              </p>
+            </div>
+          ) : savedIsSecured ? (
+            <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50 rounded-xl p-3 flex items-start space-x-2">
+              <LockIcon />
+              <p className="text-sm text-amber-800 dark:text-amber-300">
+                <strong>Personal:</strong> Only you can view this password. Everyone else, including anyone with this link, will be denied access.
               </p>
             </div>
           ) : (
