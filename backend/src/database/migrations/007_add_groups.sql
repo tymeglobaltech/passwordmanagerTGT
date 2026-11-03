@@ -20,7 +20,7 @@ CREATE INDEX IF NOT EXISTS idx_group_members_user_id ON group_members(user_id);
 
 -- Mirrors password_access_control, but grants access to every member of a
 -- group instead of one named user. A password with no rows in either table
--- stays personal; a row here is what makes it a "group password".
+-- stays personal. A row here is what makes it a "group password".
 CREATE TABLE IF NOT EXISTS password_group_access (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     password_id UUID NOT NULL REFERENCES passwords(id) ON DELETE CASCADE,
