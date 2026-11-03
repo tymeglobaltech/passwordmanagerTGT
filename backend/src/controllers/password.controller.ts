@@ -67,13 +67,15 @@ export class PasswordController {
         throw new AppError('Authentication required', 401);
       }
 
-      const { password, title, expires_at, max_access_count, secured_user_ids } = req.body;
+      const { password, title, expires_at, max_access_count, secured_user_ids, group_ids } = req.body;
 
       if (!password) {
         throw new AppError('Password is required', 400);
       }
 
-      const isSecured = Array.isArray(secured_user_ids) && secured_user_ids.length > 0;
+      const hasUserShares = Array.isArray(secured_user_ids) && secured_user_ids.length > 0;
+      const hasGroupShares = Array.isArray(group_ids) && group_ids.length > 0;
+      const isSecured = hasUserShares || hasGroupShares;
 
       // Encrypt password
       const { encrypted, iv } = EncryptionService.encrypt(password);
@@ -90,11 +92,19 @@ export class PasswordController {
       const savedPassword = result.rows[0];
 
       // Insert access control entries for secured passwords
-      if (isSecured) {
+      if (hasUserShares) {
         for (const userId of secured_user_ids) {
           await query(
             'INSERT INTO password_access_control (password_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
             [savedPassword.id, userId]
+          );
+        }
+      }
+      if (hasGroupShares) {
+        for (const groupId of group_ids) {
+          await query(
+            'INSERT INTO password_group_access (password_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+            [savedPassword.id, groupId]
           );
         }
       }
@@ -176,7 +186,11 @@ export class PasswordController {
         }
         if (passwordRecord.created_by !== req.user.userId) {
           const accessCheck = await query(
-            'SELECT 1 FROM password_access_control WHERE password_id = $1 AND user_id = $2',
+            `SELECT 1 FROM password_access_control WHERE password_id = $1 AND user_id = $2
+             UNION
+             SELECT 1 FROM password_group_access pga
+             JOIN group_members gm ON gm.group_id = pga.group_id AND gm.user_id = $2
+             WHERE pga.password_id = $1`,
             [passwordRecord.id, req.user.userId]
           );
           if (accessCheck.rows.length === 0) {
@@ -243,7 +257,7 @@ export class PasswordController {
       }
 
       const { guid } = req.params;
-      const { title, password, is_secured, secured_user_ids } = req.body;
+      const { title, password, is_secured, secured_user_ids, group_ids } = req.body;
 
       const result = await query(
         'SELECT id, created_by FROM passwords WHERE guid = $1 AND is_active = true',
@@ -302,14 +316,23 @@ export class PasswordController {
         }
       }
 
-      // Sync access control list when is_secured is explicitly set
+      // Sync access control lists when is_secured is explicitly set
       if (typeof newIsSecured === 'boolean') {
         await query('DELETE FROM password_access_control WHERE password_id = $1', [passwordRecord.id]);
+        await query('DELETE FROM password_group_access WHERE password_id = $1', [passwordRecord.id]);
         if (newIsSecured && Array.isArray(secured_user_ids) && secured_user_ids.length > 0) {
           for (const userId of secured_user_ids) {
             await query(
               'INSERT INTO password_access_control (password_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
               [passwordRecord.id, userId]
+            );
+          }
+        }
+        if (newIsSecured && Array.isArray(group_ids) && group_ids.length > 0) {
+          for (const groupId of group_ids) {
+            await query(
+              'INSERT INTO password_group_access (password_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              [passwordRecord.id, groupId]
             );
           }
         }
@@ -366,16 +389,26 @@ export class PasswordController {
         throw new AppError('Unauthorized', 403);
       }
 
-      const viewers = await query(
-        `SELECT u.id, u.username, u.email, u.full_name
-         FROM password_access_control pac
-         JOIN users u ON u.id = pac.user_id
-         WHERE pac.password_id = $1
-         ORDER BY u.username ASC`,
-        [pwResult.rows[0].id]
-      );
+      const [viewers, groupViewers] = await Promise.all([
+        query(
+          `SELECT u.id, u.username, u.email, u.full_name
+           FROM password_access_control pac
+           JOIN users u ON u.id = pac.user_id
+           WHERE pac.password_id = $1
+           ORDER BY u.username ASC`,
+          [pwResult.rows[0].id]
+        ),
+        query(
+          `SELECT g.id, g.name
+           FROM password_group_access pga
+           JOIN groups g ON g.id = pga.group_id
+           WHERE pga.password_id = $1
+           ORDER BY g.name ASC`,
+          [pwResult.rows[0].id]
+        ),
+      ]);
 
-      res.json({ success: true, data: viewers.rows });
+      res.json({ success: true, data: { users: viewers.rows, groups: groupViewers.rows } });
     } catch (error) {
       if (error instanceof AppError) throw error;
       console.error('Get viewers error:', error);
@@ -408,8 +441,10 @@ export class PasswordController {
       const baseJoin = `
         FROM passwords p
         LEFT JOIN password_access_control pac ON pac.password_id = p.id AND pac.user_id = $1
+        LEFT JOIN password_group_access pga ON pga.password_id = p.id
+        LEFT JOIN group_members gm ON gm.group_id = pga.group_id AND gm.user_id = $1
         WHERE p.is_active = true
-          AND (p.created_by = $1 OR pac.user_id IS NOT NULL)
+          AND (p.created_by = $1 OR pac.user_id IS NOT NULL OR gm.user_id IS NOT NULL)
       `;
 
       // Get total count
@@ -476,6 +511,27 @@ export class PasswordController {
       if (error instanceof AppError) throw error;
       console.error('Get available users error:', error);
       throw new AppError('Failed to fetch users', 500);
+    }
+  }
+
+  /**
+   * List groups available for password sharing (internal users only)
+   */
+  static async getAvailableGroups(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const result = await query(
+        `SELECT id, name FROM groups ORDER BY name ASC`
+      );
+
+      res.json({ success: true, data: result.rows });
+    } catch (error) {
+      if (error instanceof AppError) throw error;
+      console.error('Get available groups error:', error);
+      throw new AppError('Failed to fetch groups', 500);
     }
   }
 

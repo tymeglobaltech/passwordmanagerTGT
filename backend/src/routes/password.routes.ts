@@ -51,6 +51,16 @@ router.get(
   }
 );
 
+// List groups available for sharing (must be before /:guid)
+router.get(
+  '/available-groups',
+  authenticate,
+  requireInternalUser,
+  (req, res, next) => {
+    PasswordController.getAvailableGroups(req as AuthRequest, res).catch(next);
+  }
+);
+
 // Save password (internal users only)
 router.post(
   '/',
@@ -63,6 +73,8 @@ router.post(
     body('max_access_count').optional().isInt({ min: 1 }).withMessage('Max access count must be at least 1'),
     body('secured_user_ids').optional().isArray().withMessage('secured_user_ids must be an array'),
     body('secured_user_ids.*').optional().isUUID().withMessage('Each secured user ID must be a valid UUID'),
+    body('group_ids').optional().isArray().withMessage('group_ids must be an array'),
+    body('group_ids.*').optional().isUUID().withMessage('Each group ID must be a valid UUID'),
   ]),
   validate,
   (req, res, next) => {
@@ -117,6 +129,8 @@ router.put(
     body('is_secured').optional().isBoolean().withMessage('is_secured must be a boolean'),
     body('secured_user_ids').optional().isArray().withMessage('secured_user_ids must be an array'),
     body('secured_user_ids.*').optional().isUUID().withMessage('Each viewer ID must be a valid UUID'),
+    body('group_ids').optional().isArray().withMessage('group_ids must be an array'),
+    body('group_ids.*').optional().isUUID().withMessage('Each group ID must be a valid UUID'),
   ]),
   validate,
   (req, res, next) => {

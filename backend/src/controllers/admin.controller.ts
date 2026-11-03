@@ -1,7 +1,7 @@
 import { Response } from 'express';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
-import { query } from '../database/db';
+import { query, getClient } from '../database/db';
 import { AuditService } from '../services/audit.service';
 import { EmailService } from '../services/email.service';
 import { EncryptionService } from '../services/encryption.service';
@@ -402,11 +402,17 @@ export class AdminController {
    * passwords, which aren't shown in the review UI) are moved -- this lets an
    * admin exclude entries flagged as duplicates. If omitted, every password
    * owned by the source user is transferred.
+   *
+   * If groupId is also provided, the exact set of passwords just moved
+   * (not re-derived from the target's created_by, which could also pick up
+   * passwords the target already owned) is marked secured and shared with
+   * that group, in the same transaction as the ownership change.
    */
   static async transferPasswords(req: AuthRequest, res: Response) {
+    const client = await getClient();
     try {
       const { id } = req.params;
-      const { targetUserId, passwordIds } = req.body;
+      const { targetUserId, passwordIds, groupId } = req.body;
 
       if (id === targetUserId) {
         throw new AppError('Source and target user must be different', 400);
@@ -416,7 +422,7 @@ export class AdminController {
         throw new AppError('passwordIds must be an array', 400);
       }
 
-      const usersResult = await query(
+      const usersResult = await client.query(
         'SELECT id, username FROM users WHERE id IN ($1, $2)',
         [id, targetUserId]
       );
@@ -431,15 +437,26 @@ export class AdminController {
         throw new AppError('Target user not found', 404);
       }
 
+      let groupName: string | undefined;
+      if (groupId) {
+        const groupResult = await client.query('SELECT name FROM groups WHERE id = $1', [groupId]);
+        if (groupResult.rows.length === 0) {
+          throw new AppError('Group not found', 404);
+        }
+        groupName = groupResult.rows[0].name;
+      }
+
+      await client.query('BEGIN');
+
       const result = Array.isArray(passwordIds)
-        ? await query(
+        ? await client.query(
             `UPDATE passwords
              SET created_by = $1, updated_at = CURRENT_TIMESTAMP
              WHERE created_by = $2 AND (is_active = false OR id = ANY($3::uuid[]))
              RETURNING id`,
             [targetUserId, id, passwordIds]
           )
-        : await query(
+        : await client.query(
             `UPDATE passwords
              SET created_by = $1, updated_at = CURRENT_TIMESTAMP
              WHERE created_by = $2
@@ -447,20 +464,218 @@ export class AdminController {
             [targetUserId, id]
           );
 
+      const movedIds = result.rows.map((r) => r.id);
+
+      if (groupId && movedIds.length > 0) {
+        await client.query(
+          `UPDATE passwords SET is_secured = true WHERE id = ANY($1::uuid[])`,
+          [movedIds]
+        );
+        await client.query(
+          `INSERT INTO password_group_access (password_id, group_id)
+           SELECT id, $2 FROM UNNEST($1::uuid[]) AS id
+           ON CONFLICT DO NOTHING`,
+          [movedIds, groupId]
+        );
+      }
+
+      await client.query('COMMIT');
+
       res.json({
         success: true,
         data: {
-          transferred: result.rows.length,
+          transferred: movedIds.length,
           fromUser: sourceUser.username,
           toUser: targetUser.username,
+          ...(groupName && { sharedWithGroup: groupName }),
         },
       });
     } catch (error) {
+      await client.query('ROLLBACK').catch(() => {});
       if (error instanceof AppError) {
         throw error;
       }
       console.error('Transfer passwords error:', error);
       throw new AppError('Failed to transfer passwords', 500);
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * List all groups with member counts (admin only)
+   */
+  static async getGroups(req: AuthRequest, res: Response) {
+    try {
+      const result = await query(
+        `SELECT g.id, g.name, g.created_by, g.created_at, g.updated_at,
+                COUNT(gm.user_id) AS member_count
+         FROM groups g
+         LEFT JOIN group_members gm ON gm.group_id = g.id
+         GROUP BY g.id
+         ORDER BY g.name ASC`
+      );
+
+      res.json({
+        success: true,
+        data: result.rows.map((r) => ({ ...r, member_count: parseInt(r.member_count, 10) })),
+      });
+    } catch (error) {
+      console.error('Get groups error:', error);
+      throw new AppError('Failed to get groups', 500);
+    }
+  }
+
+  /**
+   * Create a group (admin only)
+   */
+  static async createGroup(req: AuthRequest, res: Response) {
+    try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
+      const name = String(req.body.name || '').trim();
+      if (!name) {
+        throw new AppError('Group name is required', 400);
+      }
+
+      const existing = await query('SELECT id FROM groups WHERE name = $1', [name]);
+      if (existing.rows.length > 0) {
+        throw new AppError('A group with that name already exists', 400);
+      }
+
+      const result = await query(
+        `INSERT INTO groups (name, created_by) VALUES ($1, $2)
+         RETURNING id, name, created_by, created_at, updated_at`,
+        [name, req.user.userId]
+      );
+
+      res.status(201).json({ success: true, data: { ...result.rows[0], member_count: 0 } });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      console.error('Create group error:', error);
+      throw new AppError('Failed to create group', 500);
+    }
+  }
+
+  /**
+   * Delete a group (admin only). Cascades to group_members and
+   * password_group_access, so any password shared only via this group
+   * reverts to its owner-only visibility.
+   */
+  static async deleteGroup(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const result = await query('DELETE FROM groups WHERE id = $1 RETURNING id', [id]);
+
+      if (result.rows.length === 0) {
+        throw new AppError('Group not found', 404);
+      }
+
+      res.json({ success: true, message: 'Group deleted successfully' });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      console.error('Delete group error:', error);
+      throw new AppError('Failed to delete group', 500);
+    }
+  }
+
+  /**
+   * List a group's members (admin only)
+   */
+  static async getGroupMembers(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+
+      const groupResult = await query('SELECT id FROM groups WHERE id = $1', [id]);
+      if (groupResult.rows.length === 0) {
+        throw new AppError('Group not found', 404);
+      }
+
+      const members = await query(
+        `SELECT u.id, u.username, u.email, u.full_name
+         FROM group_members gm
+         JOIN users u ON u.id = gm.user_id
+         WHERE gm.group_id = $1
+         ORDER BY u.username ASC`,
+        [id]
+      );
+
+      res.json({ success: true, data: members.rows });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      console.error('Get group members error:', error);
+      throw new AppError('Failed to get group members', 500);
+    }
+  }
+
+  /**
+   * Add an existing user to a group (admin only)
+   */
+  static async addGroupMember(req: AuthRequest, res: Response) {
+    try {
+      const { id } = req.params;
+      const { userId } = req.body;
+
+      const [groupResult, userResult] = await Promise.all([
+        query('SELECT id FROM groups WHERE id = $1', [id]),
+        query('SELECT id FROM users WHERE id = $1', [userId]),
+      ]);
+
+      if (groupResult.rows.length === 0) {
+        throw new AppError('Group not found', 404);
+      }
+      if (userResult.rows.length === 0) {
+        throw new AppError('User not found', 404);
+      }
+
+      await query(
+        'INSERT INTO group_members (group_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+        [id, userId]
+      );
+
+      res.status(201).json({ success: true, message: 'User added to group' });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      console.error('Add group member error:', error);
+      throw new AppError('Failed to add group member', 500);
+    }
+  }
+
+  /**
+   * Remove a user from a group (admin only). This alone revokes their
+   * access to every password shared with the group -- no password rows
+   * need to change, since access is checked live against group_members.
+   */
+  static async removeGroupMember(req: AuthRequest, res: Response) {
+    try {
+      const { id, userId } = req.params;
+
+      const result = await query(
+        'DELETE FROM group_members WHERE group_id = $1 AND user_id = $2 RETURNING id',
+        [id, userId]
+      );
+
+      if (result.rows.length === 0) {
+        throw new AppError('User is not a member of this group', 404);
+      }
+
+      res.json({ success: true, message: 'User removed from group' });
+    } catch (error) {
+      if (error instanceof AppError) {
+        throw error;
+      }
+      console.error('Remove group member error:', error);
+      throw new AppError('Failed to remove group member', 500);
     }
   }
 

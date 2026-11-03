@@ -13,6 +13,11 @@ interface AvailableUser {
   full_name?: string;
 }
 
+interface AvailableGroup {
+  id: string;
+  name: string;
+}
+
 interface SavePasswordFormProps {
   password: string;
   onSaved?: () => void;
@@ -36,6 +41,9 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [userSearch, setUserSearch] = useState('');
+  const [availableGroups, setAvailableGroups] = useState<AvailableGroup[]>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
   const [savedIsSecured, setSavedIsSecured] = useState(false);
   const [formData, setFormData] = useState({
     title: '',
@@ -51,9 +59,17 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
         .catch(() => toast.error('Failed to load users'))
         .finally(() => setLoadingUsers(false));
     }
+    if (isSecured && availableGroups.length === 0) {
+      setLoadingGroups(true);
+      api.getAvailableGroups()
+        .then(setAvailableGroups)
+        .catch(() => toast.error('Failed to load groups'))
+        .finally(() => setLoadingGroups(false));
+    }
     if (!isSecured) {
       setSelectedUserIds([]);
       setUserSearch('');
+      setSelectedGroupIds([]);
     }
   }, [isSecured]);
 
@@ -63,11 +79,17 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
     );
   };
 
+  const toggleGroup = (groupId: string) => {
+    setSelectedGroupIds((prev) =>
+      prev.includes(groupId) ? prev.filter((id) => id !== groupId) : [...prev, groupId]
+    );
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (isSecured && selectedUserIds.length === 0) {
-      toast.error('Please select at least one user to secure this password for');
+    if (isSecured && selectedUserIds.length === 0 && selectedGroupIds.length === 0) {
+      toast.error('Please select at least one user or group to secure this password for');
       return;
     }
 
@@ -80,6 +102,7 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
         expires_at: formData.expires_at ? new Date(formData.expires_at) : undefined,
         max_access_count: formData.max_access_count ? parseInt(formData.max_access_count) : undefined,
         secured_user_ids: isSecured ? selectedUserIds : undefined,
+        group_ids: isSecured ? selectedGroupIds : undefined,
       };
 
       const result = await api.savePassword(data);
@@ -96,6 +119,7 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
       setFormData({ title: '', expires_at: '', max_access_count: '' });
       setIsSecured(false);
       setSelectedUserIds([]);
+      setSelectedGroupIds([]);
     } catch (error: any) {
       toast.error(error.response?.data?.error || 'Failed to save password');
     } finally {
@@ -235,6 +259,46 @@ export const SavePasswordForm: React.FC<SavePasswordFormProps> = ({
               {selectedUserIds.length > 0 && (
                 <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
                   {selectedUserIds.length} user{selectedUserIds.length !== 1 ? 's' : ''} selected
+                </p>
+              )}
+
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mt-4 mb-3 uppercase tracking-wide">
+                Or share with a group
+              </p>
+              {loadingGroups ? (
+                <div className="flex items-center justify-center py-6">
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-amber-500 border-t-transparent"></div>
+                </div>
+              ) : availableGroups.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-3 text-center">No groups available</p>
+              ) : (
+                <div className="space-y-1">
+                  {availableGroups.map((group) => {
+                    const selected = selectedGroupIds.includes(group.id);
+                    return (
+                      <label
+                        key={group.id}
+                        className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                          selected
+                            ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50'
+                            : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleGroup(group.id)}
+                          className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                        />
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{group.name}</p>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {selectedGroupIds.length > 0 && (
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                  {selectedGroupIds.length} group{selectedGroupIds.length !== 1 ? 's' : ''} selected
                 </p>
               )}
             </div>

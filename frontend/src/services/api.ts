@@ -17,7 +17,9 @@ import {
   AdminStats,
   AccessLog,
   PasswordGeneratorOptions,
-  PasswordGenerationResult
+  PasswordGenerationResult,
+  Group,
+  GroupMember,
 } from '@passwordpal/shared';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api';
@@ -112,8 +114,13 @@ class ApiService {
     return response.data.data;
   }
 
-  async getPasswordViewers(guid: string): Promise<{ id: string; username: string; email: string; full_name?: string }[]> {
-    const response = await this.client.get<{ data: { id: string; username: string; email: string; full_name?: string }[] }>(`/passwords/${guid}/viewers`);
+  async getPasswordViewers(guid: string): Promise<{ users: { id: string; username: string; email: string; full_name?: string }[]; groups: { id: string; name: string }[] }> {
+    const response = await this.client.get<{ data: { users: { id: string; username: string; email: string; full_name?: string }[]; groups: { id: string; name: string }[] } }>(`/passwords/${guid}/viewers`);
+    return response.data.data;
+  }
+
+  async getAvailableGroups(): Promise<{ id: string; name: string }[]> {
+    const response = await this.client.get<{ data: { id: string; name: string }[] }>('/passwords/available-groups');
     return response.data.data;
   }
 
@@ -177,10 +184,10 @@ class ApiService {
     return response.data.data.items;
   }
 
-  async transferPasswords(id: string, targetUserId: string, passwordIds?: string[]): Promise<TransferPasswordsResult> {
+  async transferPasswords(id: string, targetUserId: string, passwordIds?: string[], groupId?: string): Promise<TransferPasswordsResult> {
     const response = await this.client.put<{ data: TransferPasswordsResult }>(
       `/admin/users/${id}/transfer-passwords`,
-      { targetUserId, passwordIds }
+      { targetUserId, passwordIds, groupId }
     );
     return response.data.data;
   }
@@ -188,6 +195,34 @@ class ApiService {
   async bulkCreateUsers(entries: BulkCreateUserRow[]): Promise<{ results: BulkCreateUserResult[] }> {
     const response = await this.client.post<{ data: { results: BulkCreateUserResult[] } }>('/admin/users/bulk', { entries });
     return response.data.data;
+  }
+
+  // Admin - Group Management
+  async getGroups(): Promise<Group[]> {
+    const response = await this.client.get<{ data: Group[] }>('/admin/groups');
+    return response.data.data;
+  }
+
+  async createGroup(name: string): Promise<Group> {
+    const response = await this.client.post<{ data: Group }>('/admin/groups', { name });
+    return response.data.data;
+  }
+
+  async deleteGroup(id: string): Promise<void> {
+    await this.client.delete(`/admin/groups/${id}`);
+  }
+
+  async getGroupMembers(id: string): Promise<GroupMember[]> {
+    const response = await this.client.get<{ data: GroupMember[] }>(`/admin/groups/${id}/members`);
+    return response.data.data;
+  }
+
+  async addGroupMember(id: string, userId: string): Promise<void> {
+    await this.client.post(`/admin/groups/${id}/members`, { userId });
+  }
+
+  async removeGroupMember(id: string, userId: string): Promise<void> {
+    await this.client.delete(`/admin/groups/${id}/members/${userId}`);
   }
 
   // Admin - Logs and Stats

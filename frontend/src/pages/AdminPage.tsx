@@ -6,7 +6,7 @@ import { Input } from '../components/common/Input';
 import { Modal } from '../components/common/Modal';
 import { ImportUsersModal } from '../components/admin/ImportUsersModal';
 import { api } from '../services/api';
-import { User, CreateUserDto, UpdateUserDto, AdminStats, AccessLog, AuthProvider, TransferPreviewItem } from '@passwordpal/shared';
+import { User, CreateUserDto, UpdateUserDto, AdminStats, AccessLog, AuthProvider, TransferPreviewItem, Group, GroupMember } from '@passwordpal/shared';
 import toast from 'react-hot-toast';
 
 const UsersIcon = () => (
@@ -47,7 +47,7 @@ const XIcon = () => (
 );
 
 export const AdminPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'users' | 'logs' | 'stats'>('stats');
+  const [activeTab, setActiveTab] = useState<'users' | 'groups' | 'logs' | 'stats'>('stats');
 
   return (
     <Layout maxWidthClassName="max-w-[1600px]">
@@ -56,7 +56,7 @@ export const AdminPage: React.FC = () => {
 
         {/* Tabs */}
         <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800 rounded-full p-1 mb-8 max-w-md">
-          {(['stats', 'users', 'logs'] as const).map((tab) => (
+          {(['stats', 'users', 'groups', 'logs'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
@@ -66,7 +66,7 @@ export const AdminPage: React.FC = () => {
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
               }`}
             >
-              {tab === 'stats' ? 'Statistics' : tab === 'users' ? 'Users' : 'Logs'}
+              {tab === 'stats' ? 'Statistics' : tab === 'users' ? 'Users' : tab === 'groups' ? 'Groups' : 'Logs'}
             </button>
           ))}
         </div>
@@ -74,6 +74,7 @@ export const AdminPage: React.FC = () => {
         {/* Tab Content */}
         {activeTab === 'stats' && <StatsTab />}
         {activeTab === 'users' && <UsersTab />}
+        {activeTab === 'groups' && <GroupsTab />}
         {activeTab === 'logs' && <LogsTab />}
       </div>
     </Layout>
@@ -181,6 +182,8 @@ const UsersTab: React.FC = () => {
   const [transferPreview, setTransferPreview] = useState<TransferPreviewItem[]>([]);
   const [transferPreviewLoading, setTransferPreviewLoading] = useState(false);
   const [transferSelectedIds, setTransferSelectedIds] = useState<Set<string>>(new Set());
+  const [transferGroups, setTransferGroups] = useState<Group[]>([]);
+  const [transferGroupId, setTransferGroupId] = useState('');
   const [formData, setFormData] = useState<CreateUserDto>({
     username: '',
     full_name: '',
@@ -296,6 +299,10 @@ const UsersTab: React.FC = () => {
     setTransferTargetSearch('');
     setTransferPreview([]);
     setTransferSelectedIds(new Set());
+    setTransferGroupId('');
+    if (transferGroups.length === 0) {
+      api.getGroups().then(setTransferGroups).catch(() => toast.error('Failed to load groups'));
+    }
   };
 
   const handleSelectTransferTarget = async (targetId: string) => {
@@ -339,11 +346,13 @@ const UsersTab: React.FC = () => {
       const result = await api.transferPasswords(
         transferringUser.id,
         transferTargetId,
-        Array.from(transferSelectedIds)
+        Array.from(transferSelectedIds),
+        transferGroupId || undefined
       );
+      const sharedSuffix = result.sharedWithGroup ? ` and shared with "${result.sharedWithGroup}"` : '';
       toast.success(
         result.transferred > 0
-          ? `Transferred ${result.transferred} password${result.transferred !== 1 ? 's' : ''} from ${result.fromUser} to ${result.toUser}`
+          ? `Transferred ${result.transferred} password${result.transferred !== 1 ? 's' : ''} from ${result.fromUser} to ${result.toUser}${sharedSuffix}`
           : `No passwords were transferred from ${result.fromUser}`
       );
       setTransferringUser(null);
@@ -701,6 +710,30 @@ const UsersTab: React.FC = () => {
             </div>
           )}
 
+          {transferTargetId && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+                Share with group (optional)
+              </label>
+              <select
+                value={transferGroupId}
+                onChange={(e) => setTransferGroupId(e.target.value)}
+                className="w-full px-4 py-2.5 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm transition-colors"
+              >
+                <option value="">Don&apos;t share -- just transfer ownership</option>
+                {transferGroups.map((g) => (
+                  <option key={g.id} value={g.id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+              <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                The transferred passwords will be flagged secured and made visible to every member of this group, in
+                addition to {transferTargetOptions.find((u) => u.id === transferTargetId)?.username || 'the target user'}.
+              </p>
+            </div>
+          )}
+
           <div className="flex space-x-2">
             <Button
               type="submit"
@@ -826,6 +859,286 @@ const UsersTab: React.FC = () => {
         onImported={fetchUsers}
       />
     </>
+  );
+};
+
+const GroupsTab: React.FC = () => {
+  const [groups, setGroups] = useState<Group[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [newGroupName, setNewGroupName] = useState('');
+  const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [managingGroup, setManagingGroup] = useState<Group | null>(null);
+
+  useEffect(() => {
+    fetchGroups();
+  }, []);
+
+  const fetchGroups = async () => {
+    try {
+      const data = await api.getGroups();
+      setGroups(data);
+    } catch {
+      toast.error('Failed to load groups');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreateGroup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newGroupName.trim()) return;
+    setCreating(true);
+    try {
+      const group = await api.createGroup(newGroupName.trim());
+      setGroups((prev) => [...prev, group].sort((a, b) => a.name.localeCompare(b.name)));
+      setNewGroupName('');
+      toast.success('Group created');
+    } catch (error: any) {
+      toast.error(error.response?.data?.error || 'Failed to create group');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleteGroup = async (group: Group) => {
+    if (!window.confirm(`Delete "${group.name}"? Any passwords shared only with this group will become visible to its owner only.`)) {
+      return;
+    }
+    setDeletingId(group.id);
+    try {
+      await api.deleteGroup(group.id);
+      setGroups((prev) => prev.filter((g) => g.id !== group.id));
+      toast.success('Group deleted');
+    } catch {
+      toast.error('Failed to delete group');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-primary-600 border-t-transparent"></div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Card>
+        <form onSubmit={handleCreateGroup} className="flex items-end space-x-3 mb-6">
+          <div className="flex-1">
+            <Input
+              label="New group name"
+              placeholder="e.g., Finance Team"
+              value={newGroupName}
+              onChange={(e) => setNewGroupName(e.target.value)}
+            />
+          </div>
+          <Button type="submit" loading={creating} disabled={!newGroupName.trim()}>
+            Create Group
+          </Button>
+        </form>
+
+        {groups.length === 0 ? (
+          <p className="text-sm text-gray-500 dark:text-gray-400 text-center py-8">
+            No groups yet. Create one above to start sharing passwords with a set of users.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
+                  <th className="py-2 pr-4 font-medium">Name</th>
+                  <th className="py-2 pr-4 font-medium">Members</th>
+                  <th className="py-2 pr-4 font-medium">Created</th>
+                  <th className="py-2 pr-4 font-medium text-right">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100 dark:divide-gray-800">
+                {groups.map((group) => (
+                  <tr key={group.id}>
+                    <td className="py-3 pr-4 font-medium text-gray-900 dark:text-white">{group.name}</td>
+                    <td className="py-3 pr-4 text-gray-600 dark:text-gray-300">
+                      {group.member_count} member{group.member_count !== 1 ? 's' : ''}
+                    </td>
+                    <td className="py-3 pr-4 text-gray-500 dark:text-gray-400">
+                      {new Date(group.created_at).toLocaleDateString()}
+                    </td>
+                    <td className="py-3 pr-4 text-right space-x-2">
+                      <Button variant="secondary" onClick={() => setManagingGroup(group)}>
+                        Manage Members
+                      </Button>
+                      <Button
+                        variant="danger"
+                        loading={deletingId === group.id}
+                        onClick={() => handleDeleteGroup(group)}
+                      >
+                        Delete
+                      </Button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Card>
+
+      {managingGroup && (
+        <GroupMembersModal
+          group={managingGroup}
+          onClose={() => setManagingGroup(null)}
+          onMemberCountChanged={(count) =>
+            setGroups((prev) => prev.map((g) => (g.id === managingGroup.id ? { ...g, member_count: count } : g)))
+          }
+        />
+      )}
+    </>
+  );
+};
+
+interface GroupMembersModalProps {
+  group: Group;
+  onClose: () => void;
+  onMemberCountChanged: (count: number) => void;
+}
+
+const GroupMembersModal: React.FC<GroupMembersModalProps> = ({ group, onClose, onMemberCountChanged }) => {
+  const [members, setMembers] = useState<GroupMember[]>([]);
+  const [allUsers, setAllUsers] = useState<User[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [addingId, setAddingId] = useState<string | null>(null);
+  const [removingId, setRemovingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([api.getGroupMembers(group.id), api.getUsers(1, 1000)])
+      .then(([memberList, usersResponse]) => {
+        setMembers(memberList);
+        setAllUsers(usersResponse.data);
+      })
+      .catch(() => toast.error('Failed to load members'))
+      .finally(() => setLoading(false));
+  }, [group.id]);
+
+  const memberIds = new Set(members.map((m) => m.id));
+  const nonMembers = allUsers.filter((u) => !memberIds.has(u.id)).filter((u) => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      u.username.toLowerCase().includes(q) ||
+      u.email.toLowerCase().includes(q) ||
+      (u.full_name || '').toLowerCase().includes(q)
+    );
+  });
+
+  const handleAdd = async (userId: string) => {
+    setAddingId(userId);
+    try {
+      await api.addGroupMember(group.id, userId);
+      const user = allUsers.find((u) => u.id === userId);
+      if (user) {
+        setMembers((prev) => {
+          const next = [...prev, user].sort((a, b) => a.username.localeCompare(b.username));
+          onMemberCountChanged(next.length);
+          return next;
+        });
+      }
+    } catch {
+      toast.error('Failed to add member');
+    } finally {
+      setAddingId(null);
+    }
+  };
+
+  const handleRemove = async (userId: string) => {
+    setRemovingId(userId);
+    try {
+      await api.removeGroupMember(group.id, userId);
+      setMembers((prev) => {
+        const next = prev.filter((m) => m.id !== userId);
+        onMemberCountChanged(next.length);
+        return next;
+      });
+    } catch {
+      toast.error('Failed to remove member');
+    } finally {
+      setRemovingId(null);
+    }
+  };
+
+  return (
+    <Modal isOpen onClose={onClose} title={`Members: ${group.name}`} size="lg">
+      {loading ? (
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary-600 border-t-transparent"></div>
+        </div>
+      ) : (
+        <div className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              Current members ({members.length})
+            </label>
+            {members.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400 py-2">No members yet.</p>
+            ) : (
+              <div className="max-h-40 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-200 dark:divide-gray-700">
+                {members.map((m) => (
+                  <div key={m.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span className="text-gray-900 dark:text-gray-100 truncate">
+                      {m.full_name || m.username} <span className="text-gray-400 dark:text-gray-500">({m.email})</span>
+                    </span>
+                    <Button
+                      variant="danger"
+                      loading={removingId === m.id}
+                      onClick={() => handleRemove(m.id)}
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5">
+              Add existing user
+            </label>
+            <input
+              type="text"
+              placeholder="Search users by name, username, or email..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full mb-2 px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-xl bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-primary-500 text-sm transition-colors"
+            />
+            {nonMembers.length === 0 ? (
+              <p className="text-sm text-gray-500 dark:text-gray-400 py-2">No matching users to add.</p>
+            ) : (
+              <div className="max-h-40 overflow-y-auto rounded-xl border border-gray-200 dark:border-gray-700 divide-y divide-gray-200 dark:divide-gray-700">
+                {nonMembers.map((u) => (
+                  <div key={u.id} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span className="text-gray-900 dark:text-gray-100 truncate">
+                      {u.full_name || u.username} <span className="text-gray-400 dark:text-gray-500">({u.email})</span>
+                    </span>
+                    <Button loading={addingId === u.id} onClick={() => handleAdd(u.id)}>
+                      Add
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Button variant="secondary" fullWidth onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      )}
+    </Modal>
   );
 };
 

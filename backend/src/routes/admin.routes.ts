@@ -90,10 +90,74 @@ router.put(
     body('targetUserId').isUUID().withMessage('Invalid target user ID'),
     body('passwordIds').optional().isArray().withMessage('passwordIds must be an array'),
     body('passwordIds.*').isUUID().withMessage('Invalid password ID'),
+    body('groupId').optional().isUUID().withMessage('Invalid group ID'),
   ]),
   validate,
   (req, res, next) => {
     AdminController.transferPasswords(req, res).catch(next);
+  }
+);
+
+// Get all groups
+router.get('/groups', (req, res, next) => {
+  AdminController.getGroups(req, res).catch(next);
+});
+
+// Create a group
+router.post(
+  '/groups',
+  runValidations([
+    body('name').trim().notEmpty().withMessage('Group name is required'),
+  ]),
+  validate,
+  (req, res, next) => {
+    AdminController.createGroup(req, res).catch(next);
+  }
+);
+
+// Delete a group
+router.delete(
+  '/groups/:id',
+  runValidations([param('id').isUUID().withMessage('Invalid group ID')]),
+  validate,
+  (req, res, next) => {
+    AdminController.deleteGroup(req, res).catch(next);
+  }
+);
+
+// List a group's members
+router.get(
+  '/groups/:id/members',
+  runValidations([param('id').isUUID().withMessage('Invalid group ID')]),
+  validate,
+  (req, res, next) => {
+    AdminController.getGroupMembers(req, res).catch(next);
+  }
+);
+
+// Add an existing user to a group
+router.post(
+  '/groups/:id/members',
+  runValidations([
+    param('id').isUUID().withMessage('Invalid group ID'),
+    body('userId').isUUID().withMessage('Invalid user ID'),
+  ]),
+  validate,
+  (req, res, next) => {
+    AdminController.addGroupMember(req, res).catch(next);
+  }
+);
+
+// Remove a user from a group
+router.delete(
+  '/groups/:id/members/:userId',
+  runValidations([
+    param('id').isUUID().withMessage('Invalid group ID'),
+    param('userId').isUUID().withMessage('Invalid user ID'),
+  ]),
+  validate,
+  (req, res, next) => {
+    AdminController.removeGroupMember(req, res).catch(next);
   }
 );
 

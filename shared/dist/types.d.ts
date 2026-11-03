@@ -49,6 +49,24 @@ export interface TransferPasswordsResult {
     transferred: number;
     fromUser: string;
     toUser: string;
+    sharedWithGroup?: string;
+}
+export interface Group {
+    id: string;
+    name: string;
+    created_by?: string;
+    created_at: Date;
+    updated_at: Date;
+    member_count?: number;
+}
+export interface CreateGroupDto {
+    name: string;
+}
+export interface GroupMember {
+    id: string;
+    username: string;
+    email: string;
+    full_name?: string;
 }
 export interface TransferPreviewItem {
     id: string;
@@ -87,6 +105,7 @@ export interface CreatePasswordDto {
     expires_at?: Date;
     max_access_count?: number;
     secured_user_ids?: string[];
+    group_ids?: string[];
 }
 export interface RetrievePasswordResponse {
     password: string;
@@ -116,6 +135,7 @@ export interface UpdatePasswordDto {
     password?: string;
     is_secured?: boolean;
     secured_user_ids?: string[];
+    group_ids?: string[];
 }
 export type AccessType = 'view' | 'create' | 'delete' | 'update';
 export interface AccessLog {

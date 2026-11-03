@@ -84,6 +84,11 @@ interface AvailableUser {
   full_name?: string;
 }
 
+interface AvailableGroup {
+  id: string;
+  name: string;
+}
+
 interface EditModalProps {
   password: PasswordListItem;
   onClose: () => void;
@@ -101,18 +106,28 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [userSearch, setUserSearch] = useState('');
   const [loadingUsers, setLoadingUsers] = useState(false);
+  const [availableGroups, setAvailableGroups] = useState<AvailableGroup[]>([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
+  const [loadingGroups, setLoadingGroups] = useState(false);
 
   // On open, load current viewers if already secured
   useEffect(() => {
     if (password.is_secured) {
       setLoadingUsers(true);
+      setLoadingGroups(true);
       Promise.all([
         api.getPasswordViewers(password.guid),
         api.getAvailableUsers(),
-      ]).then(([viewers, users]) => {
-        setSelectedUserIds(viewers.map((v) => v.id));
+        api.getAvailableGroups(),
+      ]).then(([viewers, users, groups]) => {
+        setSelectedUserIds(viewers.users.map((v) => v.id));
         setAvailableUsers(users);
-      }).catch(() => toast.error('Failed to load viewers')).finally(() => setLoadingUsers(false));
+        setSelectedGroupIds(viewers.groups.map((g) => g.id));
+        setAvailableGroups(groups);
+      }).catch(() => toast.error('Failed to load viewers')).finally(() => {
+        setLoadingUsers(false);
+        setLoadingGroups(false);
+      });
     }
   }, []);
 
@@ -126,9 +141,17 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
         .catch(() => toast.error('Failed to load users'))
         .finally(() => setLoadingUsers(false));
     }
+    if (next && availableGroups.length === 0) {
+      setLoadingGroups(true);
+      api.getAvailableGroups()
+        .then(setAvailableGroups)
+        .catch(() => toast.error('Failed to load groups'))
+        .finally(() => setLoadingGroups(false));
+    }
     if (!next) {
       setSelectedUserIds([]);
       setUserSearch('');
+      setSelectedGroupIds([]);
     }
   };
 
@@ -138,17 +161,24 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
     );
   };
 
+  const toggleGroup = (groupId: string) => {
+    setSelectedGroupIds((prev) =>
+      prev.includes(groupId) ? prev.filter((id) => id !== groupId) : [...prev, groupId]
+    );
+  };
+
   const handleSave = async () => {
-    if (isSecured && selectedUserIds.length === 0) {
-      toast.error('Select at least one user, or turn off Secure my password');
+    if (isSecured && selectedUserIds.length === 0 && selectedGroupIds.length === 0) {
+      toast.error('Select at least one user or group, or turn off Secure my password');
       return;
     }
     setSaving(true);
     try {
-      const payload: { title?: string; password?: string; is_secured: boolean; secured_user_ids: string[] } = {
+      const payload: { title?: string; password?: string; is_secured: boolean; secured_user_ids: string[]; group_ids: string[] } = {
         title: title || undefined,
         is_secured: isSecured,
         secured_user_ids: isSecured ? selectedUserIds : [],
+        group_ids: isSecured ? selectedGroupIds : [],
       };
       if (newPassword) payload.password = newPassword;
       const updated = await api.updatePassword(password.guid, payload);
@@ -295,6 +325,46 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
                     </p>
                   )}
                 </>
+              )}
+
+              <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mt-4 mb-3 uppercase tracking-wide">
+                Or share with a group
+              </p>
+              {loadingGroups ? (
+                <div className="flex items-center justify-center py-6">
+                  <div className="animate-spin rounded-full h-5 w-5 border-2 border-amber-500 border-t-transparent"></div>
+                </div>
+              ) : availableGroups.length === 0 ? (
+                <p className="text-sm text-gray-500 dark:text-gray-400 py-3 text-center">No groups available</p>
+              ) : (
+                <div className="max-h-44 overflow-y-auto space-y-1 -mx-1">
+                  {availableGroups.map((group) => {
+                    const selected = selectedGroupIds.includes(group.id);
+                    return (
+                      <label
+                        key={group.id}
+                        className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                          selected
+                            ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50'
+                            : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={selected}
+                          onChange={() => toggleGroup(group.id)}
+                          className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                        />
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{group.name}</p>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+              {selectedGroupIds.length > 0 && (
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-400 font-medium">
+                  {selectedGroupIds.length} group{selectedGroupIds.length !== 1 ? 's' : ''} selected
+                </p>
               )}
             </div>
           )}
