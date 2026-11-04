@@ -8,6 +8,22 @@ import { PasswordGeneratorOptions } from '@passwordpal/shared';
 
 export class PasswordController {
   /**
+   * Whether a user can view a secured password via a direct share or group membership
+   * (ownership is checked separately by callers).
+   */
+  private static async hasSharedAccess(passwordId: string, userId: string): Promise<boolean> {
+    const result = await query(
+      `SELECT 1 FROM password_access_control WHERE password_id = $1 AND user_id = $2
+       UNION
+       SELECT 1 FROM password_group_access pga
+       JOIN group_members gm ON gm.group_id = pga.group_id AND gm.user_id = $2
+       WHERE pga.password_id = $1`,
+      [passwordId, userId]
+    );
+    return result.rows.length > 0;
+  }
+
+  /**
    * Generate a secure password
    */
   static generatePassword(req: AuthRequest, res: Response) {
@@ -189,15 +205,8 @@ export class PasswordController {
           throw new AppError('Authentication required to view this password', 401);
         }
         if (passwordRecord.created_by !== req.user.userId) {
-          const accessCheck = await query(
-            `SELECT 1 FROM password_access_control WHERE password_id = $1 AND user_id = $2
-             UNION
-             SELECT 1 FROM password_group_access pga
-             JOIN group_members gm ON gm.group_id = pga.group_id AND gm.user_id = $2
-             WHERE pga.password_id = $1`,
-            [passwordRecord.id, req.user.userId]
-          );
-          if (accessCheck.rows.length === 0) {
+          const canView = await PasswordController.hasSharedAccess(passwordRecord.id, req.user.userId);
+          if (!canView) {
             throw new AppError('You do not have permission to view this password', 403);
           }
         }
@@ -273,12 +282,19 @@ export class PasswordController {
       }
 
       const passwordRecord = result.rows[0];
+      const isOwner = passwordRecord.created_by === req.user.userId;
 
-      if (passwordRecord.created_by !== req.user.userId) {
-        throw new AppError('Unauthorized', 403);
+      if (!isOwner) {
+        const canAccess = await PasswordController.hasSharedAccess(passwordRecord.id, req.user.userId);
+        if (!canAccess) {
+          throw new AppError('Unauthorized', 403);
+        }
       }
 
-      const newIsSecured = typeof is_secured === 'boolean' ? is_secured : undefined;
+      // Only the owner can toggle is_secured or replace the share lists outright --
+      // a shared viewer (direct share or group member) can edit the title/value and
+      // grant further access, but can't lock out the owner or other viewers.
+      const newIsSecured = isOwner && typeof is_secured === 'boolean' ? is_secured : undefined;
 
       let updateResult;
       if (password) {
@@ -320,8 +336,8 @@ export class PasswordController {
         }
       }
 
-      // Sync access control lists when is_secured is explicitly set
       if (typeof newIsSecured === 'boolean') {
+        // Owner replaced the share lists outright (is_secured explicitly set).
         await query('DELETE FROM password_access_control WHERE password_id = $1', [passwordRecord.id]);
         await query('DELETE FROM password_group_access WHERE password_id = $1', [passwordRecord.id]);
         if (newIsSecured && Array.isArray(secured_user_ids) && secured_user_ids.length > 0) {
@@ -333,6 +349,25 @@ export class PasswordController {
           }
         }
         if (newIsSecured && Array.isArray(group_ids) && group_ids.length > 0) {
+          for (const groupId of group_ids) {
+            await query(
+              'INSERT INTO password_group_access (password_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              [passwordRecord.id, groupId]
+            );
+          }
+        }
+      } else {
+        // Anyone with access (owner or a shared viewer) can grant further access
+        // by adding more users/groups -- existing shares are left untouched.
+        if (Array.isArray(secured_user_ids)) {
+          for (const userId of secured_user_ids) {
+            await query(
+              'INSERT INTO password_access_control (password_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
+              [passwordRecord.id, userId]
+            );
+          }
+        }
+        if (Array.isArray(group_ids)) {
           for (const groupId of group_ids) {
             await query(
               'INSERT INTO password_group_access (password_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
@@ -370,7 +405,7 @@ export class PasswordController {
   }
 
   /**
-   * Get the list of users who can view a secured password (owner only)
+   * Get the list of users who can view a secured password (owner or a shared viewer)
    */
   static async getPasswordViewers(req: AuthRequest, res: Response) {
     try {
@@ -390,7 +425,10 @@ export class PasswordController {
       }
 
       if (pwResult.rows[0].created_by !== req.user.userId) {
-        throw new AppError('Unauthorized', 403);
+        const canAccess = await PasswordController.hasSharedAccess(pwResult.rows[0].id, req.user.userId);
+        if (!canAccess) {
+          throw new AppError('Unauthorized', 403);
+        }
       }
 
       const [viewers, groupViewers] = await Promise.all([

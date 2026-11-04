@@ -91,11 +91,12 @@ interface AvailableGroup {
 
 interface EditModalProps {
   password: PasswordListItem;
+  isOwner: boolean;
   onClose: () => void;
   onSaved: (updated: PasswordListItem) => void;
 }
 
-const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => {
+const EditModal: React.FC<EditModalProps> = ({ password, isOwner, onClose, onSaved }) => {
   const [title, setTitle] = useState(password.title || '');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -110,6 +111,11 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
   const [selectedGroupIds, setSelectedGroupIds] = useState<string[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(false);
 
+  // Shared viewers (non-owner) can only add further access, never remove what's
+  // already there -- these track who already has access, separate from new picks.
+  const [existingUserIds, setExistingUserIds] = useState<string[]>([]);
+  const [existingGroupIds, setExistingGroupIds] = useState<string[]>([]);
+
   // On open, load current viewers if already secured
   useEffect(() => {
     if (password.is_secured) {
@@ -121,13 +127,29 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
         api.getAvailableGroups(),
       ]).then(([viewers, users, groups]) => {
         setSelectedUserIds(viewers.users.map((v) => v.id));
+        setExistingUserIds(viewers.users.map((v) => v.id));
         setAvailableUsers(users);
         setSelectedGroupIds(viewers.groups.map((g) => g.id));
+        setExistingGroupIds(viewers.groups.map((g) => g.id));
         setAvailableGroups(groups);
       }).catch(() => toast.error('Failed to load viewers')).finally(() => {
         setLoadingUsers(false);
         setLoadingGroups(false);
       });
+    } else if (!isOwner) {
+      // Shouldn't happen (shared access implies secured), but guard anyway.
+      setLoadingUsers(true);
+      setLoadingGroups(true);
+      Promise.all([api.getAvailableUsers(), api.getAvailableGroups()])
+        .then(([users, groups]) => {
+          setAvailableUsers(users);
+          setAvailableGroups(groups);
+        })
+        .catch(() => toast.error('Failed to load users/groups'))
+        .finally(() => {
+          setLoadingUsers(false);
+          setLoadingGroups(false);
+        });
     }
   }, []);
 
@@ -170,12 +192,23 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
   const handleSave = async () => {
     setSaving(true);
     try {
-      const payload: { title?: string; password?: string; is_secured: boolean; secured_user_ids: string[]; group_ids: string[] } = {
-        title: title || undefined,
-        is_secured: isSecured,
-        secured_user_ids: isSecured ? selectedUserIds : [],
-        group_ids: isSecured ? selectedGroupIds : [],
-      };
+      let payload: { title?: string; password?: string; is_secured?: boolean; secured_user_ids?: string[]; group_ids?: string[] };
+      if (isOwner) {
+        payload = {
+          title: title || undefined,
+          is_secured: isSecured,
+          secured_user_ids: isSecured ? selectedUserIds : [],
+          group_ids: isSecured ? selectedGroupIds : [],
+        };
+      } else {
+        // Shared viewers can only grant further access, never revoke it --
+        // only send the newly-added picks, leaving existing shares untouched.
+        payload = {
+          title: title || undefined,
+          secured_user_ids: selectedUserIds.filter((id) => !existingUserIds.includes(id)),
+          group_ids: selectedGroupIds.filter((id) => !existingGroupIds.includes(id)),
+        };
+      }
       if (newPassword) payload.password = newPassword;
       const updated = await api.updatePassword(password.guid, payload);
       toast.success('Password updated');
@@ -241,30 +274,43 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
 
         {/* Security settings */}
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          <button
-            type="button"
-            onClick={handleSecureToggle}
-            className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
-          >
-            <div className="flex items-center space-x-3">
+          {isOwner ? (
+            <button
+              type="button"
+              onClick={handleSecureToggle}
+              className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
+            >
+              <div className="flex items-center space-x-3">
+                <LockIcon />
+                <div>
+                  <p className="text-sm font-medium text-gray-900 dark:text-white">Secure my password</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">
+                    Restrict access -- to just you, or to specific users/groups below
+                  </p>
+                </div>
+              </div>
+              <div className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${isSecured ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${isSecured ? 'translate-x-4' : 'translate-x-0'}`} />
+              </div>
+            </button>
+          ) : (
+            <div className="flex items-center space-x-3 p-4 bg-gray-50 dark:bg-gray-800/50">
               <LockIcon />
               <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-white">Secure my password</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Shared access</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Restrict access -- to just you, or to specific users/groups below
+                  You can grant more people or groups access below. Existing access can't be removed here.
                 </p>
               </div>
             </div>
-            <div className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${isSecured ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${isSecured ? 'translate-x-4' : 'translate-x-0'}`} />
-            </div>
-          </button>
+          )}
 
           {isSecured && (
             <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                Leave everything below unselected to keep this password for your eyes only. Pick users and/or a group
-                to additionally share it with them.
+                {isOwner
+                  ? 'Leave everything below unselected to keep this password for your eyes only. Pick users and/or a group to additionally share it with them.'
+                  : "Users and groups already checked below already have access. Check more to add them -- it won't remove anyone."}
               </p>
               <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">
                 Who else can view this password
@@ -295,10 +341,11 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
                     <div className="max-h-44 overflow-y-auto space-y-1 -mx-1">
                       {filteredUsers.map((u) => {
                         const selected = selectedUserIds.includes(u.id);
+                        const locked = !isOwner && existingUserIds.includes(u.id);
                         return (
                           <label
                             key={u.id}
-                            className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                            className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors ${locked ? 'cursor-default' : 'cursor-pointer'} ${
                               selected
                                 ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50'
                                 : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
@@ -307,8 +354,9 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
                             <input
                               type="checkbox"
                               checked={selected}
+                              disabled={locked}
                               onChange={() => toggleUser(u.id)}
-                              className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                              className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500 disabled:opacity-60"
                             />
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium text-gray-900 dark:text-white truncate">
@@ -316,6 +364,9 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
                               </p>
                               <p className="text-xs text-gray-500 dark:text-gray-400 truncate">{u.email}</p>
                             </div>
+                            {locked && (
+                              <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 flex-shrink-0">Already has access</span>
+                            )}
                           </label>
                         );
                       })}
@@ -342,10 +393,11 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
                 <div className="max-h-44 overflow-y-auto space-y-1 -mx-1">
                   {availableGroups.map((group) => {
                     const selected = selectedGroupIds.includes(group.id);
+                    const locked = !isOwner && existingGroupIds.includes(group.id);
                     return (
                       <label
                         key={group.id}
-                        className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg cursor-pointer transition-colors ${
+                        className={`flex items-center space-x-3 px-3 py-2.5 rounded-lg transition-colors ${locked ? 'cursor-default' : 'cursor-pointer'} ${
                           selected
                             ? 'bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800/50'
                             : 'hover:bg-gray-50 dark:hover:bg-gray-700/50 border border-transparent'
@@ -354,10 +406,14 @@ const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => 
                         <input
                           type="checkbox"
                           checked={selected}
+                          disabled={locked}
                           onChange={() => toggleGroup(group.id)}
-                          className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500"
+                          className="h-4 w-4 rounded border-gray-300 text-amber-500 focus:ring-amber-500 disabled:opacity-60"
                         />
-                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate">{group.name}</p>
+                        <p className="text-sm font-medium text-gray-900 dark:text-white truncate flex-1">{group.name}</p>
+                        {locked && (
+                          <span className="text-[10px] font-medium text-gray-400 dark:text-gray-500 flex-shrink-0">Already has access</span>
+                        )}
                       </label>
                     );
                   })}
@@ -547,6 +603,7 @@ export const DashboardPage: React.FC = () => {
         {editingPassword && (
           <EditModal
             password={editingPassword}
+            isOwner={editingPassword.created_by === user?.id}
             onClose={() => setEditingPassword(null)}
             onSaved={handleEditSaved}
           />
@@ -633,16 +690,14 @@ export const DashboardPage: React.FC = () => {
 
                       <div className="flex items-center space-x-2 ml-4">
                         <CopyButton text={password.shareable_link} />
-                        {isOwner && (
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => setEditingPassword(password)}
-                            title="Edit"
-                          >
-                            <PencilIcon />
-                          </Button>
-                        )}
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => setEditingPassword(password)}
+                          title="Edit"
+                        >
+                          <PencilIcon />
+                        </Button>
                         <Link to={`/retrieve/${password.guid}`} target="_blank">
                           <Button variant="secondary" size="sm">
                             View
