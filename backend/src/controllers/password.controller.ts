@@ -291,9 +291,11 @@ export class PasswordController {
         }
       }
 
-      // Only the owner can toggle is_secured or replace the share lists outright --
-      // a shared viewer (direct share or group member) can edit the title/value and
-      // grant further access, but can't lock out the owner or other viewers.
+      // Only the owner can toggle is_secured (making the password fully private or
+      // dropping the "secured" restriction entirely) -- a shared viewer (direct share
+      // or group member) can edit the title/value and manage who else has access
+      // (add or remove users/groups), but can't change whether it's secured at all,
+      // and can't affect the owner's own access either way.
       const newIsSecured = isOwner && typeof is_secured === 'boolean' ? is_secured : undefined;
 
       let updateResult;
@@ -357,9 +359,13 @@ export class PasswordController {
           }
         }
       } else {
-        // Anyone with access (owner or a shared viewer) can grant further access
-        // by adding more users/groups -- existing shares are left untouched.
+        // Anyone with access (owner or a shared viewer) can manage who else is
+        // shared with -- add or remove specific users/groups -- without touching
+        // is_secured itself. This can't un-secure the password or remove the
+        // owner's access (the owner's access doesn't come from these tables),
+        // so a shared viewer can unassign a group but can't lock the owner out.
         if (Array.isArray(secured_user_ids)) {
+          await query('DELETE FROM password_access_control WHERE password_id = $1', [passwordRecord.id]);
           for (const userId of secured_user_ids) {
             await query(
               'INSERT INTO password_access_control (password_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
@@ -368,6 +374,7 @@ export class PasswordController {
           }
         }
         if (Array.isArray(group_ids)) {
+          await query('DELETE FROM password_group_access WHERE password_id = $1', [passwordRecord.id]);
           for (const groupId of group_ids) {
             await query(
               'INSERT INTO password_group_access (password_id, group_id) VALUES ($1, $2) ON CONFLICT DO NOTHING',
