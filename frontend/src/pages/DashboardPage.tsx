@@ -91,12 +91,13 @@ interface AvailableGroup {
 
 interface EditModalProps {
   password: PasswordListItem;
-  isOwner: boolean;
   onClose: () => void;
   onSaved: (updated: PasswordListItem) => void;
 }
 
-const EditModal: React.FC<EditModalProps> = ({ password, isOwner, onClose, onSaved }) => {
+// Only rendered for the password's owner or an admin -- a plain user who merely
+// has view access through a share can't edit at all (see the Edit button below).
+const EditModal: React.FC<EditModalProps> = ({ password, onClose, onSaved }) => {
   const [title, setTitle] = useState(password.title || '');
   const [newPassword, setNewPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -129,20 +130,6 @@ const EditModal: React.FC<EditModalProps> = ({ password, isOwner, onClose, onSav
         setLoadingUsers(false);
         setLoadingGroups(false);
       });
-    } else if (!isOwner) {
-      // Shouldn't happen (shared access implies secured), but guard anyway.
-      setLoadingUsers(true);
-      setLoadingGroups(true);
-      Promise.all([api.getAvailableUsers(), api.getAvailableGroups()])
-        .then(([users, groups]) => {
-          setAvailableUsers(users);
-          setAvailableGroups(groups);
-        })
-        .catch(() => toast.error('Failed to load users/groups'))
-        .finally(() => {
-          setLoadingUsers(false);
-          setLoadingGroups(false);
-        });
     }
   }, []);
 
@@ -185,23 +172,12 @@ const EditModal: React.FC<EditModalProps> = ({ password, isOwner, onClose, onSav
   const handleSave = async () => {
     setSaving(true);
     try {
-      let payload: { title?: string; password?: string; is_secured?: boolean; secured_user_ids?: string[]; group_ids?: string[] };
-      if (isOwner) {
-        payload = {
-          title: title || undefined,
-          is_secured: isSecured,
-          secured_user_ids: isSecured ? selectedUserIds : [],
-          group_ids: isSecured ? selectedGroupIds : [],
-        };
-      } else {
-        // Shared viewers can manage who else has access (add or remove users/groups)
-        // but can't change whether the password is secured at all.
-        payload = {
-          title: title || undefined,
-          secured_user_ids: selectedUserIds,
-          group_ids: selectedGroupIds,
-        };
-      }
+      const payload: { title?: string; password?: string; is_secured: boolean; secured_user_ids: string[]; group_ids: string[] } = {
+        title: title || undefined,
+        is_secured: isSecured,
+        secured_user_ids: isSecured ? selectedUserIds : [],
+        group_ids: isSecured ? selectedGroupIds : [],
+      };
       if (newPassword) payload.password = newPassword;
       const updated = await api.updatePassword(password.guid, payload);
       toast.success('Password updated');
@@ -267,43 +243,30 @@ const EditModal: React.FC<EditModalProps> = ({ password, isOwner, onClose, onSav
 
         {/* Security settings */}
         <div className="rounded-xl border border-gray-200 dark:border-gray-700 overflow-hidden">
-          {isOwner ? (
-            <button
-              type="button"
-              onClick={handleSecureToggle}
-              className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
-            >
-              <div className="flex items-center space-x-3">
-                <LockIcon />
-                <div>
-                  <p className="text-sm font-medium text-gray-900 dark:text-white">Secure my password</p>
-                  <p className="text-xs text-gray-500 dark:text-gray-400">
-                    Restrict access -- to just you, or to specific users/groups below
-                  </p>
-                </div>
-              </div>
-              <div className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${isSecured ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
-                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${isSecured ? 'translate-x-4' : 'translate-x-0'}`} />
-              </div>
-            </button>
-          ) : (
-            <div className="flex items-center space-x-3 p-4 bg-gray-50 dark:bg-gray-800/50">
+          <button
+            type="button"
+            onClick={handleSecureToggle}
+            className="w-full flex items-center justify-between p-4 bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors text-left"
+          >
+            <div className="flex items-center space-x-3">
               <LockIcon />
               <div>
-                <p className="text-sm font-medium text-gray-900 dark:text-white">Shared access</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">Secure my password</p>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
-                  Manage who else can view this password below.
+                  Restrict access -- to just you, or to specific users/groups below
                 </p>
               </div>
             </div>
-          )}
+            <div className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out ${isSecured ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'}`}>
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform duration-200 ease-in-out ${isSecured ? 'translate-x-4' : 'translate-x-0'}`} />
+            </div>
+          </button>
 
           {isSecured && (
             <div className="p-4 border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
               <p className="text-xs text-gray-500 dark:text-gray-400 mb-3">
-                {isOwner
-                  ? 'Leave everything below unselected to keep this password for your eyes only. Pick users and/or a group to additionally share it with them.'
-                  : 'Check a user or group to share with them, or uncheck one to remove their access.'}
+                Leave everything below unselected to keep this password for your eyes only. Pick users and/or a group
+                to additionally share it with them.
               </p>
               <p className="text-xs font-medium text-gray-600 dark:text-gray-400 mb-3 uppercase tracking-wide">
                 Who else can view this password
@@ -433,7 +396,7 @@ const isModified = (password: PasswordListItem) => {
 };
 
 export const DashboardPage: React.FC = () => {
-  const { isExternal, user } = useAuth();
+  const { isExternal, isAdmin, user } = useAuth();
   const navigate = useNavigate();
   const [passwords, setPasswords] = useState<PasswordListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -586,7 +549,6 @@ export const DashboardPage: React.FC = () => {
         {editingPassword && (
           <EditModal
             password={editingPassword}
-            isOwner={editingPassword.created_by === user?.id}
             onClose={() => setEditingPassword(null)}
             onSaved={handleEditSaved}
           />
@@ -614,6 +576,7 @@ export const DashboardPage: React.FC = () => {
             <div className="space-y-4">
               {passwords.map((password) => {
                 const isOwner = password.created_by === user?.id;
+                const canEdit = isOwner || isAdmin;
                 return (
                 <Card key={password.id} padding={false} className="group">
                   <div className="p-5">
@@ -673,14 +636,16 @@ export const DashboardPage: React.FC = () => {
 
                       <div className="flex items-center space-x-2 ml-4">
                         <CopyButton text={password.shareable_link} />
-                        <Button
-                          variant="secondary"
-                          size="sm"
-                          onClick={() => setEditingPassword(password)}
-                          title="Edit"
-                        >
-                          <PencilIcon />
-                        </Button>
+                        {canEdit && (
+                          <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => setEditingPassword(password)}
+                            title="Edit"
+                          >
+                            <PencilIcon />
+                          </Button>
+                        )}
                         <Link to={`/retrieve/${password.guid}`} target="_blank">
                           <Button variant="secondary" size="sm">
                             View

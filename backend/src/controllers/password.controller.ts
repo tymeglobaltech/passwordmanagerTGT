@@ -283,20 +283,16 @@ export class PasswordController {
 
       const passwordRecord = result.rows[0];
       const isOwner = passwordRecord.created_by === req.user.userId;
+      const isAdmin = req.user.role === 'admin';
 
-      if (!isOwner) {
-        const canAccess = await PasswordController.hasSharedAccess(passwordRecord.id, req.user.userId);
-        if (!canAccess) {
-          throw new AppError('Unauthorized', 403);
-        }
+      // Only the owner or an admin can edit a password. A user who merely has
+      // view access via a direct share or group membership can view it but not
+      // edit it -- editing is not a consequence of being able to view.
+      if (!isOwner && !isAdmin) {
+        throw new AppError('Unauthorized', 403);
       }
 
-      // Only the owner can toggle is_secured (making the password fully private or
-      // dropping the "secured" restriction entirely) -- a shared viewer (direct share
-      // or group member) can edit the title/value and manage who else has access
-      // (add or remove users/groups), but can't change whether it's secured at all,
-      // and can't affect the owner's own access either way.
-      const newIsSecured = isOwner && typeof is_secured === 'boolean' ? is_secured : undefined;
+      const newIsSecured = typeof is_secured === 'boolean' ? is_secured : undefined;
 
       let updateResult;
       if (password) {
@@ -339,7 +335,7 @@ export class PasswordController {
       }
 
       if (typeof newIsSecured === 'boolean') {
-        // Owner replaced the share lists outright (is_secured explicitly set).
+        // is_secured explicitly set -- replace the share lists outright.
         await query('DELETE FROM password_access_control WHERE password_id = $1', [passwordRecord.id]);
         await query('DELETE FROM password_group_access WHERE password_id = $1', [passwordRecord.id]);
         if (newIsSecured && Array.isArray(secured_user_ids) && secured_user_ids.length > 0) {
@@ -359,11 +355,8 @@ export class PasswordController {
           }
         }
       } else {
-        // Anyone with access (owner or a shared viewer) can manage who else is
-        // shared with -- add or remove specific users/groups -- without touching
-        // is_secured itself. This can't un-secure the password or remove the
-        // owner's access (the owner's access doesn't come from these tables),
-        // so a shared viewer can unassign a group but can't lock the owner out.
+        // is_secured wasn't touched -- just sync the share lists (add/remove
+        // specific users/groups) if given.
         if (Array.isArray(secured_user_ids)) {
           await query('DELETE FROM password_access_control WHERE password_id = $1', [passwordRecord.id]);
           for (const userId of secured_user_ids) {
@@ -412,7 +405,8 @@ export class PasswordController {
   }
 
   /**
-   * Get the list of users who can view a secured password (owner or a shared viewer)
+   * Get the list of users who can view a secured password (owner or admin only --
+   * this backs the edit UI, and only the owner/an admin can edit)
    */
   static async getPasswordViewers(req: AuthRequest, res: Response) {
     try {
@@ -431,11 +425,8 @@ export class PasswordController {
         throw new AppError('Password not found', 404);
       }
 
-      if (pwResult.rows[0].created_by !== req.user.userId) {
-        const canAccess = await PasswordController.hasSharedAccess(pwResult.rows[0].id, req.user.userId);
-        if (!canAccess) {
-          throw new AppError('Unauthorized', 403);
-        }
+      if (pwResult.rows[0].created_by !== req.user.userId && req.user.role !== 'admin') {
+        throw new AppError('Unauthorized', 403);
       }
 
       const [viewers, groupViewers] = await Promise.all([
