@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { User } from '@passwordpal/shared';
 import { api } from '../services/api';
 
@@ -35,7 +35,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setLoading(false);
   }, []);
 
-  const login = async (email: string, password: string) => {
+  // Each of these is wrapped in useCallback with an empty dependency array -
+  // they only close over `api` (a stable module-level import) and state
+  // setters (guaranteed stable by React), so they genuinely never need to
+  // change identity. This matters beyond the usual render-count concern:
+  // LoginPage's effect that loads the Google Identity Services script and
+  // calls google.accounts.id.initialize() depends (transitively, via a
+  // useCallback) on loginWithGoogle. Without this, a plain function
+  // redefined on every render here caused that effect to tear down and
+  // re-run on every AuthProvider re-render (including the one right after
+  // mount, when the session-restore effect below flips `loading` to
+  // false) - re-initializing Google's widget a second time on every single
+  // page load, which is what left the sign-in button in a broken,
+  // unstyled state.
+  const login = useCallback(async (email: string, password: string) => {
     const response = await api.login({ email, password });
 
     setToken(response.token);
@@ -43,9 +56,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     localStorage.setItem('token', response.token);
     localStorage.setItem('user', JSON.stringify(response.user));
-  };
+  }, []);
 
-  const loginWithGoogle = async (idToken: string) => {
+  const loginWithGoogle = useCallback(async (idToken: string) => {
     const response = await api.googleLogin(idToken);
 
     setToken(response.token);
@@ -53,9 +66,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     localStorage.setItem('token', response.token);
     localStorage.setItem('user', JSON.stringify(response.user));
-  };
+  }, []);
 
-  const changeExpiredPassword = async (email: string, currentPassword: string, newPassword: string) => {
+  const changeExpiredPassword = useCallback(async (email: string, currentPassword: string, newPassword: string) => {
     const response = await api.changeExpiredPassword(email, currentPassword, newPassword);
 
     setToken(response.token);
@@ -63,9 +76,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
     localStorage.setItem('token', response.token);
     localStorage.setItem('user', JSON.stringify(response.user));
-  };
+  }, []);
 
-  const logout = () => {
+  const logout = useCallback(() => {
     api.logout().catch(() => {
       // Ignore errors on logout
     });
@@ -74,7 +87,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
     localStorage.removeItem('token');
     localStorage.removeItem('user');
-  };
+  }, []);
 
   const value: AuthContextType = {
     user,
