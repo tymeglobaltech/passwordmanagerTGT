@@ -10,6 +10,11 @@
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      Must load and run before the app bundle below. See the comment in
+      that file for why this can't just be code inside main.tsx.
+    -->
+    <script src="/trusted-types-init.js"></script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
