@@ -29,7 +29,19 @@ app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
 // Security middleware
-app.use(helmet());
+app.use(
+  helmet({
+    // Match the 2-year max-age set on the frontend's nginx config so both
+    // layers agree (helmet's default is 180 days). Preload is included in
+    // the header but is only meaningful once the domain is actually
+    // submitted to hstspreload.org - see nginx config comments.
+    hsts: {
+      maxAge: 63072000,
+      includeSubDomains: true,
+      preload: true,
+    },
+  })
+);
 
 // CORS configuration
 const corsOptions = {
