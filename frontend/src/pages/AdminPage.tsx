@@ -6,7 +6,7 @@ import { Input } from '../components/common/Input';
 import { Modal } from '../components/common/Modal';
 import { ImportUsersModal } from '../components/admin/ImportUsersModal';
 import { api } from '../services/api';
-import { User, CreateUserDto, UpdateUserDto, AdminStats, AccessLog, AuthProvider, TransferPreviewItem, Group, GroupMember } from '@passwordpal/shared';
+import { User, CreateUserDto, UpdateUserDto, AdminStats, AccessLog, AdminAuditLogEntry, AuthProvider, TransferPreviewItem, Group, GroupMember } from '@passwordpal/shared';
 import toast from 'react-hot-toast';
 
 const UsersIcon = () => (
@@ -47,7 +47,15 @@ const XIcon = () => (
 );
 
 export const AdminPage: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'users' | 'groups' | 'logs' | 'stats'>('stats');
+  const [activeTab, setActiveTab] = useState<'users' | 'groups' | 'logs' | 'activity' | 'stats'>('stats');
+
+  const tabLabels: Record<typeof activeTab, string> = {
+    stats: 'Statistics',
+    users: 'Users',
+    groups: 'Groups',
+    logs: 'Password Logs',
+    activity: 'Admin Activity',
+  };
 
   return (
     <Layout maxWidthClassName="max-w-[1600px]">
@@ -55,18 +63,18 @@ export const AdminPage: React.FC = () => {
         <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-8">Admin Panel</h1>
 
         {/* Tabs */}
-        <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800 rounded-full p-1 mb-8 max-w-md">
-          {(['stats', 'users', 'groups', 'logs'] as const).map((tab) => (
+        <div className="flex space-x-1 bg-gray-100 dark:bg-gray-800 rounded-full p-1 mb-8 max-w-xl overflow-x-auto">
+          {(['stats', 'users', 'groups', 'logs', 'activity'] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setActiveTab(tab)}
-              className={`flex-1 py-2 px-4 text-sm font-medium rounded-full transition-all duration-200 capitalize ${
+              className={`flex-1 py-2 px-4 text-sm font-medium rounded-full transition-all duration-200 whitespace-nowrap ${
                 activeTab === tab
                   ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-white shadow-sm'
                   : 'text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
               }`}
             >
-              {tab === 'stats' ? 'Statistics' : tab === 'users' ? 'Users' : tab === 'groups' ? 'Groups' : 'Logs'}
+              {tabLabels[tab]}
             </button>
           ))}
         </div>
@@ -76,6 +84,7 @@ export const AdminPage: React.FC = () => {
         {activeTab === 'users' && <UsersTab />}
         {activeTab === 'groups' && <GroupsTab />}
         {activeTab === 'logs' && <LogsTab />}
+        {activeTab === 'activity' && <ActivityTab />}
       </div>
     </Layout>
   );
@@ -1229,6 +1238,165 @@ const LogsTab: React.FC = () => {
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm">
                     {log.success ? <CheckIcon /> : <XIcon />}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Card>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-center space-x-3 mt-6">
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setPage((p) => Math.max(1, p - 1))}
+            disabled={page === 1}
+          >
+            Previous
+          </Button>
+          <span className="text-sm text-gray-500 dark:text-gray-400">
+            Page {page} of {totalPages}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            disabled={page === totalPages}
+          >
+            Next
+          </Button>
+        </div>
+      )}
+    </>
+  );
+};
+
+const ADMIN_ACTION_LABELS: Record<string, string> = {
+  user_created: 'User created',
+  user_deleted: 'User deleted',
+  role_changed: 'Role changed',
+  status_changed: 'Status changed',
+  user_updated: 'User updated',
+  passwords_transferred: 'Passwords transferred',
+};
+
+const ADMIN_ACTION_STYLES: Record<string, string> = {
+  user_created: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+  user_deleted: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-300',
+  role_changed: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  status_changed: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300',
+  user_updated: 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300',
+  passwords_transferred: 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300',
+};
+
+const describeAdminAuditDetails = (log: AdminAuditLogEntry): string => {
+  const details = log.details || {};
+  switch (log.action) {
+    case 'role_changed':
+      return `${details.oldRole ?? '?'} → ${details.newRole ?? '?'}`;
+    case 'status_changed':
+      return details.newActive ? 'Activated' : 'Deactivated';
+    case 'user_created':
+      return `role: ${details.role ?? '?'}${details.via === 'bulk_import' ? ' (bulk import)' : ''}`;
+    case 'user_deleted':
+      return `role: ${details.role ?? '?'}`;
+    case 'user_updated':
+      return Array.isArray(details.fields) ? `fields: ${details.fields.join(', ')}` : '';
+    case 'passwords_transferred':
+      return `${details.transferred ?? 0} password(s) from ${details.fromUser ?? '?'} to ${details.toUser ?? '?'}${
+        details.sharedWithGroup ? ` (shared with ${details.sharedWithGroup})` : ''
+      }`;
+    default:
+      return '';
+  }
+};
+
+const ActivityTab: React.FC = () => {
+  const [logs, setLogs] = useState<AdminAuditLogEntry[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+
+  useEffect(() => {
+    fetchLogs();
+  }, [page]);
+
+  const fetchLogs = async () => {
+    try {
+      const response = await api.getAdminAuditLog({ page, limit: 50 });
+      setLogs(response.data);
+      setTotalPages(response.totalPages);
+    } catch (error) {
+      toast.error('Failed to load admin activity log');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-12">
+        <div className="animate-spin rounded-full h-10 w-10 border-2 border-primary-600 border-t-transparent"></div>
+      </div>
+    );
+  }
+
+  return (
+    <>
+      <Card padding={false}>
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-gray-50 dark:bg-gray-900/50 border-b border-gray-200 dark:border-gray-700">
+              <tr>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                  Timestamp
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                  Action
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                  Performed By
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                  Target User
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                  Details
+                </th>
+                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase">
+                  IP Address
+                </th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+              {logs.map((log) => (
+                <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-gray-900/30 transition-colors">
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                    {new Date(log.created_at).toLocaleString()}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm">
+                    <span
+                      className={`px-2.5 py-1 rounded-full text-xs font-medium ${
+                        ADMIN_ACTION_STYLES[log.action] || 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300'
+                      }`}
+                    >
+                      {ADMIN_ACTION_LABELS[log.action] || log.action}
+                    </span>
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                    {log.actor_username || 'System'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                    {log.target_username || log.details?.username || '—'}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
+                    {describeAdminAuditDetails(log)}
+                  </td>
+                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400 font-mono">
+                    {log.ip_address}
                   </td>
                 </tr>
               ))}

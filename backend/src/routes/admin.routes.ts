@@ -98,6 +98,11 @@ router.put(
   }
 );
 
+// Get admin audit log (user management actions)
+router.get('/audit-log', (req, res, next) => {
+  AdminController.getAdminAuditLog(req, res).catch(next);
+});
+
 // Get all groups
 router.get('/groups', (req, res, next) => {
   AdminController.getGroups(req, res).catch(next);

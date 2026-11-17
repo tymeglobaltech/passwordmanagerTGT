@@ -16,6 +16,7 @@ import {
   TransferPreviewItem,
   AdminStats,
   AccessLog,
+  AdminAuditLogEntry,
   PasswordGeneratorOptions,
   PasswordGenerationResult,
   Group,
@@ -241,6 +242,20 @@ class ApiService {
 
   async getStatistics(): Promise<AdminStats> {
     const response = await this.client.get<{ data: AdminStats }>('/admin/stats');
+    return response.data.data;
+  }
+
+  async getAdminAuditLog(params?: {
+    page?: number;
+    limit?: number;
+    actorId?: string;
+    targetUserId?: string;
+    action?: string;
+  }): Promise<PaginatedResponse<AdminAuditLogEntry>> {
+    const response = await this.client.get<{ data: PaginatedResponse<AdminAuditLogEntry> }>(
+      '/admin/audit-log',
+      { params }
+    );
     return response.data.data;
   }
 }

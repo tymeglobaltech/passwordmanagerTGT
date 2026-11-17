@@ -149,6 +149,19 @@ export interface AccessLog {
     success: boolean;
     created_at: Date;
 }
+export type AdminAuditAction = 'user_created' | 'user_deleted' | 'role_changed' | 'status_changed' | 'user_updated' | 'passwords_transferred';
+export interface AdminAuditLogEntry {
+    id: string;
+    actor_id?: string;
+    actor_username?: string;
+    action: AdminAuditAction;
+    target_user_id?: string;
+    target_username?: string;
+    details: Record<string, any> | null;
+    ip_address: string;
+    user_agent: string;
+    created_at: Date;
+}
 export interface PasswordGeneratorOptions {
     length: number;
     uppercase: boolean;

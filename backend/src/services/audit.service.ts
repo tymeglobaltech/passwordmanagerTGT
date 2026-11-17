@@ -1,4 +1,4 @@
-import { AccessType } from '@passwordpal/shared';
+import { AccessType, AdminAuditAction } from '@passwordpal/shared';
 import { query } from '../database/db';
 
 export class AuditService {
@@ -96,6 +96,101 @@ export class AuditService {
        LEFT JOIN passwords p ON al.password_id = p.id
        ${whereClause}
        ORDER BY al.created_at DESC
+       LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
+      [...params, limit, offset]
+    );
+
+    return {
+      data: logsResult.rows,
+      total,
+      page,
+      limit,
+      totalPages: Math.ceil(total / limit),
+    };
+  }
+
+  /**
+   * Log an admin action on a user account (role change, activation,
+   * creation, deletion, password transfer). Failure to log must not block
+   * the underlying action, same as logAccess.
+   */
+  static async logAdminAction(data: {
+    actorId?: string;
+    action: AdminAuditAction;
+    targetUserId?: string;
+    details?: Record<string, any>;
+    ipAddress: string;
+    userAgent: string;
+  }): Promise<void> {
+    try {
+      await query(
+        `INSERT INTO admin_audit_log (actor_id, action, target_user_id, details, ip_address, user_agent)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          data.actorId || null,
+          data.action,
+          data.targetUserId || null,
+          data.details ? JSON.stringify(data.details) : null,
+          data.ipAddress,
+          data.userAgent,
+        ]
+      );
+    } catch (error) {
+      console.error('Failed to log admin action:', error);
+      // Don't throw - logging failure shouldn't break the main operation
+    }
+  }
+
+  /**
+   * Get admin audit log entries with pagination and filtering
+   */
+  static async getAdminAuditLog(options: {
+    page?: number;
+    limit?: number;
+    actorId?: string;
+    targetUserId?: string;
+    action?: AdminAuditAction;
+  }) {
+    const page = options.page || 1;
+    const limit = options.limit || 50;
+    const offset = (page - 1) * limit;
+
+    const whereConditions: string[] = [];
+    const params: any[] = [];
+    let paramIndex = 1;
+
+    if (options.actorId) {
+      whereConditions.push(`actor_id = $${paramIndex++}`);
+      params.push(options.actorId);
+    }
+
+    if (options.targetUserId) {
+      whereConditions.push(`target_user_id = $${paramIndex++}`);
+      params.push(options.targetUserId);
+    }
+
+    if (options.action) {
+      whereConditions.push(`action = $${paramIndex++}`);
+      params.push(options.action);
+    }
+
+    const whereClause = whereConditions.length > 0
+      ? `WHERE ${whereConditions.join(' AND ')}`
+      : '';
+
+    const countResult = await query(
+      `SELECT COUNT(*) FROM admin_audit_log ${whereClause}`,
+      params
+    );
+    const total = parseInt(countResult.rows[0].count);
+
+    const logsResult = await query(
+      `SELECT aal.*, actor.username AS actor_username, target.username AS target_username
+       FROM admin_audit_log aal
+       LEFT JOIN users actor ON aal.actor_id = actor.id
+       LEFT JOIN users target ON aal.target_user_id = target.id
+       ${whereClause}
+       ORDER BY aal.created_at DESC
        LIMIT $${paramIndex++} OFFSET $${paramIndex}`,
       [...params, limit, offset]
     );

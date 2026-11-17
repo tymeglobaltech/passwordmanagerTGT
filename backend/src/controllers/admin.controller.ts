@@ -105,6 +105,15 @@ export class AdminController {
         [username, full_name || null, email, passwordHash, role, provider, req.user.userId, setupToken, setupExpires, passwordHash ? new Date() : null]
       );
 
+      await AuditService.logAdminAction({
+        actorId: req.user.userId,
+        action: 'user_created',
+        targetUserId: result.rows[0].id,
+        details: { username, email, role, auth_provider: provider },
+        ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown',
+      });
+
       // Send setup email to external users. The user row above is already
       // committed, so an email failure here must not surface as a hard
       // failure -- otherwise the admin sees "failed" but retrying then hits
@@ -214,6 +223,15 @@ export class AdminController {
             }
           }
 
+          await AuditService.logAdminAction({
+            actorId: req.user.userId,
+            action: 'user_created',
+            targetUserId: inserted.rows[0].id,
+            details: { username, email, role, auth_provider: provider, via: 'bulk_import' },
+            ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
+            userAgent: req.headers['user-agent'] || 'unknown',
+          });
+
           results.push({ index, username, email, success: true, id: inserted.rows[0].id });
         } catch (rowError) {
           console.error('Bulk create user row error:', rowError);
@@ -236,8 +254,21 @@ export class AdminController {
    */
   static async updateUser(req: AuthRequest, res: Response) {
     try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
       const { id } = req.params;
       const { username, full_name, email, password, role, is_active } = req.body;
+
+      const existingResult = await query(
+        'SELECT username, email, role, is_active FROM users WHERE id = $1',
+        [id]
+      );
+      if (existingResult.rows.length === 0) {
+        throw new AppError('User not found', 404);
+      }
+      const existing = existingResult.rows[0];
 
       // Build update query dynamically
       const updates: string[] = [];
@@ -295,6 +326,49 @@ export class AdminController {
 
       if (result.rows.length === 0) {
         throw new AppError('User not found', 404);
+      }
+
+      const ipAddress = req.ip || req.socket.remoteAddress || 'unknown';
+      const userAgent = (req.headers['user-agent'] as string) || 'unknown';
+
+      if (role !== undefined && role !== existing.role) {
+        await AuditService.logAdminAction({
+          actorId: req.user.userId,
+          action: 'role_changed',
+          targetUserId: id,
+          details: { username: existing.username, oldRole: existing.role, newRole: role },
+          ipAddress,
+          userAgent,
+        });
+      }
+
+      if (is_active !== undefined && is_active !== existing.is_active) {
+        await AuditService.logAdminAction({
+          actorId: req.user.userId,
+          action: 'status_changed',
+          targetUserId: id,
+          details: { username: existing.username, oldActive: existing.is_active, newActive: is_active },
+          ipAddress,
+          userAgent,
+        });
+      }
+
+      const otherFieldsChanged = [
+        username !== undefined && username !== existing.username ? 'username' : null,
+        email !== undefined && email !== existing.email ? 'email' : null,
+        full_name !== undefined ? 'full_name' : null,
+        password !== undefined ? 'password' : null,
+      ].filter((field): field is string => field !== null);
+
+      if (otherFieldsChanged.length > 0) {
+        await AuditService.logAdminAction({
+          actorId: req.user.userId,
+          action: 'user_updated',
+          targetUserId: id,
+          details: { username: existing.username, fields: otherFieldsChanged },
+          ipAddress,
+          userAgent,
+        });
       }
 
       res.json({
@@ -411,6 +485,10 @@ export class AdminController {
   static async transferPasswords(req: AuthRequest, res: Response) {
     const client = await getClient();
     try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
       const { id } = req.params;
       const { targetUserId, passwordIds, groupId } = req.body;
 
@@ -480,6 +558,20 @@ export class AdminController {
       }
 
       await client.query('COMMIT');
+
+      await AuditService.logAdminAction({
+        actorId: req.user.userId,
+        action: 'passwords_transferred',
+        targetUserId: targetUserId,
+        details: {
+          fromUser: sourceUser.username,
+          toUser: targetUser.username,
+          transferred: movedIds.length,
+          ...(groupName && { sharedWithGroup: groupName }),
+        },
+        ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown',
+      });
 
       res.json({
         success: true,
@@ -684,18 +776,37 @@ export class AdminController {
    */
   static async deleteUser(req: AuthRequest, res: Response) {
     try {
+      if (!req.user) {
+        throw new AppError('Authentication required', 401);
+      }
+
       const { id } = req.params;
 
       // Don't allow deleting self
-      if (req.user?.userId === id) {
+      if (req.user.userId === id) {
         throw new AppError('Cannot delete your own account', 400);
       }
 
-      const result = await query('DELETE FROM users WHERE id = $1 RETURNING id', [id]);
+      const result = await query(
+        'DELETE FROM users WHERE id = $1 RETURNING id, username, email, role',
+        [id]
+      );
 
       if (result.rows.length === 0) {
         throw new AppError('User not found', 404);
       }
+
+      // target_user_id is captured for the FK, but ON DELETE SET NULL will
+      // immediately null it out since the user row is already gone -- the
+      // details snapshot below is what keeps this entry meaningful.
+      await AuditService.logAdminAction({
+        actorId: req.user.userId,
+        action: 'user_deleted',
+        targetUserId: id,
+        details: { username: result.rows[0].username, email: result.rows[0].email, role: result.rows[0].role },
+        ipAddress: req.ip || req.socket.remoteAddress || 'unknown',
+        userAgent: req.headers['user-agent'] || 'unknown',
+      });
 
       res.json({
         success: true,
@@ -735,6 +846,34 @@ export class AdminController {
       });
     } catch (error) {
       throw new AppError('Failed to get access logs', 500);
+    }
+  }
+
+  /**
+   * Get admin audit log (role changes, user create/delete, activation, etc.) (admin only)
+   */
+  static async getAdminAuditLog(req: AuthRequest, res: Response) {
+    try {
+      const page = parseInt(req.query.page as string) || 1;
+      const limit = parseInt(req.query.limit as string) || 50;
+      const actorId = req.query.actorId as string;
+      const targetUserId = req.query.targetUserId as string;
+      const action = req.query.action as any;
+
+      const logs = await AuditService.getAdminAuditLog({
+        page,
+        limit,
+        actorId,
+        targetUserId,
+        action,
+      });
+
+      res.json({
+        success: true,
+        data: logs,
+      });
+    } catch (error) {
+      throw new AppError('Failed to get admin audit log', 500);
     }
   }
 
